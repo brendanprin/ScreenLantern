@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum InteractionType {
+  WATCHLIST
+  WATCHED
+  LIKE
+  DISLIKE
+  HIDE
+}
+
+enum SourceContext {
+  SOLO
+  GROUP
+  MANUAL
+}
+
+enum RecommendationMode {
+  SOLO
+  GROUP
+}
+
+enum MediaType {
+  MOVIE
+  TV
+}
+
+model Household {
+  id                 String              @id @default(cuid())
+  name               String
+  users              User[]
+  groups             HouseholdGroup[]
+  recommendationRuns RecommendationRun[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
+
+model User {
+  id                 String                  @id @default(cuid())
+  name               String
+  email              String                  @unique
+  passwordHash       String
+  householdId        String
+  preferredProviders String[]                @default([])
+  defaultMediaType   MediaType?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  household          Household               @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  groupMemberships   HouseholdGroupMember[]
+  createdGroups      HouseholdGroup[]        @relation("GroupCreator")
+  interactions       UserTitleInteraction[]
+  requestedRuns      RecommendationRun[]     @relation("RunRequester")
+}
+
+model HouseholdGroup {
+  id          String                 @id @default(cuid())
+  householdId String
+  name        String
+  createdById String
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  household   Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  createdBy   User                   @relation("GroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members     HouseholdGroupMember[]
+
+  @@unique([householdId, name])
+}
+
+model HouseholdGroupMember {
+  groupId String
+  userId  String
+  group   HouseholdGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+}
+
+model TitleCache {
+  id                 String                 @id @default(cuid())
+  tmdbId             Int
+  mediaType          MediaType
+  title              String
+  overview           String
+  posterPath         String?
+  backdropPath       String?
+  releaseDate        DateTime?
+  runtimeMinutes     Int?
+  genres             String[]               @default([])
+  voteAverage        Float?
+  popularity         Float?
+  providerSnapshot   Json?
+  metadataJson       Json?
+  lastSyncedAt       DateTime               @default(now())
+  interactions       UserTitleInteraction[]
+
+  @@unique([tmdbId, mediaType])
+}
+
+model UserTitleInteraction {
+  id              String          @id @default(cuid())
+  userId          String
+  titleCacheId    String
+  interactionType InteractionType
+  sourceContext   SourceContext   @default(MANUAL)
+  groupRunId      String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           TitleCache      @relation(fields: [titleCacheId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, titleCacheId, interactionType])
+  @@index([userId, interactionType])
+}
+
+model RecommendationRun {
+  id              String             @id @default(cuid())
+  householdId     String
+  mode            RecommendationMode
+  requestedById   String
+  selectedUserIds String[]
+  filtersJson     Json?
+  resultTitleIds  String[]
+  explanationJson Json?
+  createdAt       DateTime           @default(now())
+  household       Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  requestedBy     User               @relation("RunRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  @@index([householdId, mode, createdAt])
+}
+

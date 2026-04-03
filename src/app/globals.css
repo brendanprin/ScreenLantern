@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 39 57% 97%;
+    --foreground: 214 35% 16%;
+    --card: 0 0% 100%;
+    --card-foreground: 214 35% 16%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 214 35% 16%;
+    --primary: 29 74% 43%;
+    --primary-foreground: 36 100% 98%;
+    --secondary: 34 38% 92%;
+    --secondary-foreground: 214 35% 16%;
+    --muted: 34 36% 94%;
+    --muted-foreground: 215 16% 38%;
+    --accent: 41 58% 92%;
+    --accent-foreground: 214 35% 16%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 26% 86%;
+    --input: 30 26% 86%;
+    --ring: 29 74% 43%;
+    --chart-1: 29 74% 43%;
+    --chart-2: 209 67% 34%;
+    --chart-3: 140 38% 38%;
+    --chart-4: 12 70% 62%;
+    --chart-5: 47 84% 54%;
+    --radius: 1.25rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top, rgba(246, 208, 151, 0.45), transparent 32%),
+      linear-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+    background-size: auto, 32px 32px, 32px 32px;
+    background-position: center top, center top, center top;
+  }
+
+  a {
+    @apply text-inherit no-underline;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
