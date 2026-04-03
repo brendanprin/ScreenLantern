@@ -113,3 +113,37 @@ export async function getGroupWatchedTmdbKeys(args: {
     ),
   );
 }
+
+export async function getGroupWatchStateMap(args: {
+  householdId: string;
+  userIds: string[];
+  titleCacheIds: string[];
+}) {
+  if (args.userIds.length < 2 || args.titleCacheIds.length === 0) {
+    return new Map<string, GroupWatchState>();
+  }
+
+  const watchSessions = await prisma.groupWatchSession.findMany({
+    where: {
+      householdId: args.householdId,
+      participantKey: buildParticipantKey(args.userIds),
+      titleCacheId: {
+        in: args.titleCacheIds,
+      },
+    },
+    select: {
+      titleCacheId: true,
+      watchedAt: true,
+    },
+  });
+
+  return new Map(
+    watchSessions.map((watchSession) => [
+      watchSession.titleCacheId,
+      {
+        isWatchedByCurrentGroup: true,
+        watchedAt: watchSession.watchedAt.toISOString(),
+      } satisfies GroupWatchState,
+    ]),
+  );
+}

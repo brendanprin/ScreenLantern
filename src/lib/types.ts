@@ -90,6 +90,11 @@ export interface RecommendationLane {
   items: RecommendationItem[];
 }
 
+export type ReminderCategoryKey =
+  | "available_now"
+  | "watchlist_resurface"
+  | "group_watch_candidate";
+
 export type RecommendationExplanationCategory =
   | "genre_overlap"
   | "group_overlap"
@@ -106,6 +111,30 @@ export interface RecommendationExplanation {
   category: RecommendationExplanationCategory;
   summary: string;
   detail?: string | null;
+}
+
+export interface ReminderItem {
+  id: string;
+  category: ReminderCategoryKey;
+  title: TitleSummary;
+  contextLabel: string;
+  mode: RecommendationModeKey;
+  summary: string;
+  detail?: string | null;
+  explanations: RecommendationExplanation[];
+  isRead: boolean;
+  createdAt: string;
+  updatedAt: string;
+  href: string;
+  badges?: string[];
+}
+
+export interface ReminderInboxResult {
+  contextLabel: string;
+  mode: RecommendationModeKey;
+  isGroupMode: boolean;
+  unreadCount: number;
+  items: ReminderItem[];
 }
 
 export interface HouseholdMemberOption {

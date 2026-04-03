@@ -28,6 +28,8 @@
 - Group recommendation feed
 - Recommendation explanation surfacing on the main Home / For You feed
 - Watchlist resurfacing lanes for `Available now on your services` and `Back on your radar`
+- In-app reminders inbox with read/dismiss state for current-context resurfaced titles
+- Context-aware Library decision workspace with smart sections, provider-aware badges, lightweight filters, and quick triage actions
 - Group watch-session modeling separate from personal watched history
 - Provider preference settings
 
@@ -49,7 +51,9 @@
 - Deep provider linking and watch intent handoff
 - Background TMDb refresh jobs and sophisticated cache invalidation
 - Push or email notifications for watchlist availability changes
+- Background or scheduled reminder generation infrastructure
 - Cross-region provider reconciliation beyond one configured watch region
+- Advanced faceted Library search and bulk cleanup workflows
 - AI chat assistant
 - Native apps
 - Offline mode
@@ -70,6 +74,9 @@ The MVP is considered complete when:
 - Solo and combined recommendations produce stable, sensible results
 - Recommendation cards explain why a title was selected without overwhelming the feed
 - Home resurfacing lanes use watchlist and provider signals without treating unknown provider data as a positive match
+- The reminders inbox reuses resurfacing logic and keeps solo and group reminder state distinct
+- The Library helps users decide what to watch now with context-aware sections, provider-aware badges, and quick triage actions
+- Group Library views suppress exact-group watched titles from fresh shared-candidate sections
 - Shared watch events can be recorded without rewriting every participant's solo watched history
 - The repository contains product, architecture, and roadmap documentation
 - The ticket breakdown is detailed enough to manage follow-on work

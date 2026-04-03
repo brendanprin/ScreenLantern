@@ -121,9 +121,9 @@ test("watchlist and taste actions work on a title detail page", async ({ page })
   await ensureActiveButton(likeButton);
 
   await page.goto("/app/library?tab=WATCHLIST");
-  await expect(page.getByRole("heading", { name: "Arrival" })).toBeVisible();
+  await expect(page.getByTestId("library-section-collection")).toContainText("Arrival");
   await page.goto("/app/library?tab=LIKE");
-  await expect(page.getByRole("heading", { name: "Arrival" })).toBeVisible();
+  await expect(page.getByTestId("library-section-collection")).toContainText("Arrival");
 });
 
 test("group recommendation happy path is visible from household mode", async ({
@@ -234,7 +234,65 @@ test("watchlist resurfacing lanes highlight available-now picks and suppress wat
   ).toHaveCount(0);
 });
 
-test("persisted solo profile context restores across refresh", async ({ page }) => {
+test("reminders inbox surfaces solo and group reminders with read and dismiss actions", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use my solo profile" }).click(),
+  ]);
+  await page.goto("/app/reminders");
+  await expect(
+    page.getByRole("heading", { name: "Reminders for Brendan" }),
+  ).toBeVisible();
+  const soloReminderCard = page.getByTestId("reminder-card-movie-16");
+  await expect(
+    soloReminderCard.getByRole("heading", { name: "Mad Max: Fury Road" }),
+  ).toBeVisible();
+  await expect(
+    soloReminderCard.getByText("Saved to your watchlist and available on your services"),
+  ).toBeVisible();
+  await soloReminderCard.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByTestId("reminder-card-movie-16")).toHaveCount(0);
+
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
+  ]);
+  await page.goto("/app/reminders");
+  await expect(
+    page.getByRole("heading", { name: "Reminders for Brendan + Palmer" }),
+  ).toBeVisible();
+  const groupReminderCard = page.getByTestId("reminder-card-movie-16");
+  await expect(
+    groupReminderCard.getByRole("heading", {
+      name: "Mad Max: Fury Road",
+    }),
+  ).toBeVisible();
+  await expect(
+    groupReminderCard.getByText(
+      "Saved by Brendan and available for Brendan and Palmer now",
+    ),
+  ).toBeVisible();
+  await groupReminderCard.getByRole("button", { name: "Mark read" }).click();
+  await expect(page.getByTestId("reminder-section-read")).toContainText(
+    "Mad Max: Fury Road",
+  );
+});
+
+test("library intelligence surfaces solo sections, provider-aware filters, and quick triage", async ({
+  page,
+}) => {
   await signInAs(page, GEOFF_EMAIL);
   await page.getByLabel("Solo profile").click();
   await Promise.all([
@@ -245,9 +303,88 @@ test("persisted solo profile context restores across refresh", async ({ page }) 
     ),
     page.getByRole("option", { name: "Katie" }).click(),
   ]);
-  await expect(page.getByRole("heading", { name: "For Katie" })).toBeVisible();
+
+  await page.goto("/app/library");
+  await expect(
+    page.getByRole("heading", { name: "Decision workspace for Katie" }),
+  ).toBeVisible();
+  const availableSection = page.getByTestId("library-section-available_now");
+  await expect(availableSection).toBeVisible();
+  await expect(
+    availableSection.getByRole("heading", { name: "Oppenheimer" }),
+  ).toBeVisible();
+  await expect(
+    availableSection.locator("p.text-sm.font-medium.text-primary").first(),
+  ).toContainText("Saved to your watchlist and available on your services");
+  await expect(
+    availableSection.getByText("Available now", { exact: true }).first(),
+  ).toBeVisible();
+
+  await page.goto("/app/library?collection=WATCHLIST&focus=available");
+  const collectionCard = page.getByTestId("library-card-collection-movie-17");
+  await expect(collectionCard).toBeVisible();
+  await collectionCard.getByRole("button", { name: "Watchlist" }).click();
+  await expect(page.getByTestId("library-card-collection-movie-17")).toHaveCount(0);
+});
+
+test("library intelligence stays group-aware and moves watched-together titles out of fresh sections", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
+  ]);
+
+  await page.goto("/app/library");
+  await expect(
+    page.getByRole("heading", { name: "Decision workspace for Brendan + Palmer" }),
+  ).toBeVisible();
+  const groupAvailableCard = page.getByTestId("library-card-available_now-tv-104");
+  await expect(groupAvailableCard).toBeVisible();
+  await expect(
+    groupAvailableCard.getByTestId(
+      "library-card-available_now-tv-104-primary-explanation",
+    ),
+  ).toBeVisible();
+  await expect(
+    groupAvailableCard.getByTestId(
+      "library-card-available_now-tv-104-primary-explanation",
+    ),
+  ).toContainText("Saved by Palmer and available for Brendan and Palmer now");
+  await groupAvailableCard
+    .getByRole("button", { name: "Watched by current group" })
+    .click();
+
+  await expect(page.getByTestId("library-card-available_now-tv-104")).toHaveCount(0);
+  await expect(page.getByTestId("library-section-watched")).toContainText(
+    "Only Murders in the Building",
+  );
+});
+
+test("persisted solo profile context restores across refresh", async ({ page }) => {
+  await signInAs(page, GEOFF_EMAIL);
+  const currentHeading =
+    (await page.getByRole("heading", { name: /^For / }).first().textContent()) ?? "";
+  const targetProfile = currentHeading.includes("Katie") ? "Geoff" : "Katie";
+
+  await page.getByLabel("Solo profile").click();
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("option", { name: targetProfile }).click(),
+  ]);
+  await expect(page.getByRole("heading", { name: `For ${targetProfile}` })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("heading", { name: "For Katie" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `For ${targetProfile}` })).toBeVisible();
 });
 
 test("group watch sessions stay separate from solo watched history", async ({ page }) => {
@@ -268,14 +405,36 @@ test("group watch sessions stay separate from solo watched history", async ({ pa
   ).toBeVisible();
 
   await page.goto("/app/library?tab=WATCHED");
-  await expect(page.getByRole("heading", { name: "Arrival" })).toHaveCount(0);
+  const watchedCollection = page.getByTestId("library-section-collection");
+  await expect(watchedCollection.getByRole("heading", { name: "Arrival" })).toBeVisible();
+
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use my solo profile" }).click(),
+  ]);
+  await expect(
+    page.getByRole("heading", { name: "Decision workspace for Geoff" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Arrival" }),
+  ).toHaveCount(0);
 
   await page.goto("/app/title/movie/12");
   await ensureActiveButton(
     page.getByRole("button", { name: "Watched by me", exact: true }),
   );
   await page.goto("/app/library?tab=WATCHED");
-  await expect(page.getByRole("heading", { name: "Arrival" })).toBeVisible();
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Arrival" }),
+  ).toBeVisible();
 });
 
 test("membership listing and owner invite creation work", async ({ page }) => {
@@ -312,6 +471,24 @@ test("recommendation context and group watch endpoints are protected and validat
   page,
   request,
 }) => {
+  const anonymousInteractionResponse = await request.post("/api/interactions", {
+    data: {
+      title: ARRIVAL_TITLE,
+      interactionType: "WATCHLIST",
+      active: true,
+      actingUserId: "not-real-user",
+    },
+  });
+  expect(anonymousInteractionResponse.status()).toBe(401);
+
+  const anonymousReminderResponse = await request.get("/api/reminders");
+  expect(anonymousReminderResponse.status()).toBe(401);
+
+  const anonymousReadResponse = await request.post(
+    "/api/reminders/not-real-reminder/read",
+  );
+  expect(anonymousReadResponse.status()).toBe(401);
+
   const anonymousContextResponse = await request.post("/api/recommendation-context", {
     data: {
       mode: "GROUP",
@@ -341,6 +518,24 @@ test("recommendation context and group watch endpoints are protected and validat
 
   await page.getByRole("button", { name: "Use my solo profile" }).click();
   await expect(page.getByRole("heading", { name: "For Geoff" })).toBeVisible();
+
+  const invalidReminderResponse = await page.context().request.post(
+    "/api/reminders/not-real-reminder/read",
+  );
+  expect(invalidReminderResponse.status()).toBe(404);
+
+  const invalidActorResponse = await page.context().request.post(
+    "/api/interactions",
+    {
+      data: {
+        title: ARRIVAL_TITLE,
+        interactionType: "WATCHLIST",
+        active: true,
+        actingUserId: "not-real-user",
+      },
+    },
+  );
+  expect(invalidActorResponse.status()).toBe(403);
 
   const soloGroupWatchResponse = await page.context().request.post(
     "/api/watch-sessions",

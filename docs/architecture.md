@@ -28,6 +28,7 @@ Core technologies:
 - Catalog services that abstract TMDb
 - Interaction services for watchlist and taste signals
 - Recommendation services for solo and group modes
+- Library workspace services that reuse recommendation, provider, and interaction signals
 
 ### Data Layer
 
@@ -109,6 +110,29 @@ Home resurfacing lanes are built as a lightweight extension of the recommendatio
 
 This keeps resurfacing deterministic, explainable, and reusable for future notification work without introducing shared watchlist state or background jobs in MVP.
 
+### Reminder Inbox as a Persisted Context Layer
+
+ScreenLantern stores lightweight reminder rows per signed-in user and recommendation context.
+
+- reminder generation reuses the watchlist resurfacing snapshot instead of re-ranking titles from scratch
+- reminder persistence only adds user-specific state such as read and dismissed
+- reminder records are keyed by user, context, category, and title so solo and group reminders remain separate
+- the app shell badge and reminders page refresh the current context on demand
+
+This keeps reminders explainable, avoids duplicate logic, and creates a future-friendly bridge toward push or email delivery without implementing external delivery in MVP.
+
+### Library Intelligence Reuses Existing Signals
+
+The Library decision workspace is intentionally assembled from existing domain signals instead of introducing a separate ranking system or new persistence model.
+
+- watchlist candidate sections reuse the watchlist resurfacing snapshot
+- provider-aware badges reuse the same selected-service availability classification used on Home and in reminders
+- solo sections reuse personal interaction state for quick triage actions
+- group sections reuse exact-group watch-session state to suppress stale shared picks
+- group Library actions stay narrower than solo actions so shared decision-making does not silently mutate every participant's personal taste profile
+
+This keeps the Library explainable, context-aware, and lightweight while preserving a clean path toward future reminder tuning or notification delivery.
+
 ## Request Flows
 
 ### Auth Flow
@@ -181,6 +205,31 @@ This keeps resurfacing deterministic, explainable, and reusable for future notif
 6. Titles with known selected-service availability populate the `Available now on your services` lane first.
 7. Remaining qualifying watchlist titles can appear in `Back on your radar` with watchlist-aware explanation copy.
 
+### Reminder Generation Flow
+
+1. The protected shell badge or reminders page requests reminders for the current active context.
+2. The server resolves a valid household-scoped solo or group context.
+3. The watchlist resurfacing snapshot is regenerated on demand using the existing provider freshness rules.
+4. Candidate reminders are mapped into categories:
+   - `available_now`
+   - `watchlist_resurface`
+   - `group_watch_candidate`
+5. Reminder rows are upserted per user and context, while stale reminder rows for that same context are deactivated.
+6. Read and dismissed state stay on the persisted reminder row and do not mutate the underlying watchlist interaction.
+
+### Library Workspace Flow
+
+1. Library page loads the resolved active recommendation context for the signed-in user.
+2. The Library service reuses the watchlist resurfacing snapshot to build smart sections such as `Available now`, `Best from your watchlist`, `Good for this group`, and `Recently saved`.
+3. Provider availability is refreshed on demand with the existing title-cache freshness rules.
+4. Library items are labeled as:
+   - `Available now`
+   - `Available elsewhere`
+   - `Provider status unknown`
+5. Solo Library sections resolve quick triage actions against the selected solo profile, not just the signed-in account.
+6. Group Library decision sections allow explicit `Watched by current group`, while exact-group watched history is shown separately and removed from fresh-candidate sections.
+7. Focus filters and sort modes are applied server-side so the page stays deterministic and context-correct across refreshes.
+
 ### Recommendation Context Flow
 
 1. Protected layout loads the authenticated user, household members, saved groups, and any persisted context row.
@@ -205,6 +254,9 @@ This keeps resurfacing deterministic, explainable, and reusable for future notif
 - Saved groups only reference members inside one household
 - Group recommendation runs never overwrite solo user state
 - Group resurfacing uses individual watchlist intent and never creates a shared household watchlist record
+- Reminder rows belong to one signed-in user and one resolved recommendation context
+- Read and dismiss actions only mutate reminder state, not taste or library state
+- Group Library sections never imply a shared household watchlist or shared taste write for all participants
 - Recommendation explanations are generated in the service layer, not assembled ad hoc in page components
 - Invite creation, revocation, and member removal are owner-only operations in MVP
 - Ownership transfer is owner-only and constrained to another member in the same household
@@ -248,5 +300,6 @@ These functions can later be exposed to an AI planner or chat layer without rewo
 - Cross-region availability comparison and regional fallback logic
 - Rich explanation history views and per-title recommendation trace screens
 - Push, email, or cron-triggered resurfacing notifications
+- Advanced faceted Library search, bulk cleanup tooling, and per-section notification preferences
 - Multi-owner management, owner-to-owner transfer flows, and invite email delivery
 - Group watch-session editing, merge, and duplicate-session management

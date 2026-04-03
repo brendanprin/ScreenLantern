@@ -227,6 +227,10 @@ async function main() {
     where: { householdId: household.id },
   });
 
+  await prisma.userReminder.deleteMany({
+    where: { householdId: household.id },
+  });
+
   await prisma.householdGroup.create({
     data: {
       householdId: household.id,

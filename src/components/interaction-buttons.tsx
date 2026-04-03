@@ -14,6 +14,9 @@ interface InteractionButtonsProps {
   activeTypes: InteractionType[];
   activeGroupWatch?: GroupWatchState;
   showGroupWatchAction?: boolean;
+  actingUserId?: string;
+  showSoloWatchedAction?: boolean;
+  showPreferenceActions?: boolean;
 }
 
 const ACTIONS = [
@@ -28,6 +31,9 @@ export function InteractionButtons({
   activeTypes,
   activeGroupWatch,
   showGroupWatchAction = false,
+  actingUserId,
+  showSoloWatchedAction = true,
+  showPreferenceActions = true,
 }: InteractionButtonsProps) {
   const router = useRouter();
   const { activeNames, isGroupMode } = useActiveContext();
@@ -52,6 +58,7 @@ export function InteractionButtons({
           interactionType: type,
           active: !activeTypes.includes(type),
           sourceContext,
+          actingUserId,
         }),
       });
 
@@ -107,16 +114,18 @@ export function InteractionButtons({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant={activeTypes.includes(InteractionType.WATCHED) ? "default" : "outline"}
-          size="sm"
-          disabled={isSubmitting}
-          onClick={() => handleAction(InteractionType.WATCHED, SourceContext.SOLO)}
-        >
-          <Check className="h-4 w-4" />
-          Watched by me
-        </Button>
+        {showSoloWatchedAction ? (
+          <Button
+            type="button"
+            variant={activeTypes.includes(InteractionType.WATCHED) ? "default" : "outline"}
+            size="sm"
+            disabled={isSubmitting}
+            onClick={() => handleAction(InteractionType.WATCHED, SourceContext.SOLO)}
+          >
+            <Check className="h-4 w-4" />
+            Watched by me
+          </Button>
+        ) : null}
         {showGroupWatchAction && isGroupMode ? (
           <Button
             type="button"
@@ -140,25 +149,27 @@ export function InteractionButtons({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        {ACTIONS.map(({ type, label, icon: Icon }) => {
-          const isActive = activeTypes.includes(type);
+      {showPreferenceActions ? (
+        <div className="flex flex-wrap gap-2">
+          {ACTIONS.map(({ type, label, icon: Icon }) => {
+            const isActive = activeTypes.includes(type);
 
-          return (
-            <Button
-              key={type}
-              type="button"
-              variant={isActive ? "default" : "outline"}
-              size="sm"
-              disabled={isSubmitting}
-              onClick={() => handleAction(type)}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </Button>
-          );
-        })}
-      </div>
+            return (
+              <Button
+                key={type}
+                type="button"
+                variant={isActive ? "default" : "outline"}
+                size="sm"
+                disabled={isSubmitting}
+                onClick={() => handleAction(type)}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </Button>
+            );
+          })}
+        </div>
+      ) : null}
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>

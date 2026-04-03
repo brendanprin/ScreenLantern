@@ -29,6 +29,8 @@ The MVP is intentionally focused on discovery, library management, and explainab
 - Group watch-session modeling that stays distinct from solo watched history
 - Recommendation cards with concise explanation reasons plus a lightweight “Why this?” disclosure
 - Home resurfacing lanes for watchlist titles that are back on your radar or available now on your services
+- In-app reminder center for newly available and resurfaced watchlist titles in the current solo or group context
+- Context-aware Library decision workspace with smart sections, provider-aware badges, and quick triage actions
 - Demo seed data for Brendan, Katie, Palmer, and Geoff
 
 ## Local Setup
@@ -52,6 +54,7 @@ npm install
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403130200_init/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403153000_household_roles_and_invites/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403170000_recommendation_context_and_group_watch_sessions/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403190000_user_reminders/migration.sql
 ```
 
 5. Generate the Prisma client:
@@ -145,6 +148,51 @@ npm run dev
   - no background job or notification system is required in MVP
 - The same resurfacing rules are intended to power future push or email notifications, but notification delivery itself is deferred.
 
+## In-App Reminders
+
+- ScreenLantern includes a dedicated `/app/reminders` inbox plus an unread badge in the protected app shell.
+- Reminders are generated from the same watchlist resurfacing rules used on Home, not from a separate ranking engine.
+- Reminder categories in MVP:
+  - `available_now`
+  - `watchlist_resurface`
+  - `group_watch_candidate`
+- Reminder records are stored per signed-in user and current recommendation context.
+- Solo reminders reflect the active solo profile's watchlist and watched state.
+- Group reminders reflect the active group context and suppress titles the exact group already watched together.
+- Reminder freshness is on-demand:
+  - shell badge loads and the reminders page refresh the current context's reminder set
+  - existing provider freshness and title-cache rules are reused
+  - no cron jobs, push delivery, or email delivery are required in MVP
+- Reminder actions currently support:
+  - open title detail
+  - mark read
+  - dismiss
+
+## Library Decision Workspace
+
+- The Library now behaves as a decision workspace, not just a bucket list.
+- It follows the active recommendation context:
+  - solo mode uses the selected solo profile
+  - group mode uses the active saved group or ad hoc member combination
+- Smart Library sections in MVP include:
+  - `Available now`
+  - `Best from your watchlist` or `Good for this group`
+  - `Recently saved`
+  - `Already watched`
+  - `Hidden / not interested` or `Deprioritized for this group`
+- Provider-aware treatment is intentionally explicit:
+  - `Available now` means the title matches the selected services in the configured watch region
+  - `Available elsewhere` means provider data exists, but not on the selected services
+  - `Provider status unknown` means missing or incomplete provider data and is never treated as a positive signal
+- Library controls stay lightweight:
+  - focus filters: `All`, `Available now`, `Movies`, `Shows`, `Unwatched`
+  - sort modes: `Smart`, `Recently saved`, `Shorter runtime`
+- Quick triage actions depend on context:
+  - solo sections allow `Watched by me`, watchlist toggle, like, dislike, and hide
+  - group decision sections allow `Watched by current group` without mutating each participant's personal taste state
+  - informational group sections such as watched-together history and deprioritized titles stay read-oriented to avoid ambiguous shared edits
+- Exact current-group watch history suppresses stale “fresh pick” candidates so the room does not keep seeing titles it already watched together as new decisions.
+
 ## Household Governance
 
 - Households use a simple MVP+ role model: exactly one `OWNER` plus any number of `MEMBER`s.
@@ -185,5 +233,6 @@ npm run dev
 - Streaming service sync
 - Deep recommendation-debug views and richer explanation timelines
 - Push, email, or cron-based “now available” notifications
+- Advanced faceted Library search, bulk cleanup workflows, and reminder-preference tuning
 - AI chat and LLM orchestration
 - Native mobile clients

@@ -13,16 +13,26 @@ import type {
   RecommendationExplanation,
   RecommendationItem,
   RecommendationLane,
+  RecommendationLaneId,
   TasteProfile,
   TitleSummary,
 } from "@/lib/types";
 
 type RecommendationModeShape = "solo" | "group";
-type SelectedServiceAvailability =
+export type SelectedServiceAvailability =
   | "selected_services"
   | "other_services"
   | "unavailable"
   | "unknown";
+
+export interface WatchlistResurfacingCandidate {
+  laneId: RecommendationLaneId;
+  titleCacheId: string;
+  item: RecommendationItem;
+  availabilityMatch: SelectedServiceAvailability;
+  latestUpdatedAt: string;
+  savedByNames: string[];
+}
 
 function runtimeBand(runtimeMinutes?: number | null) {
   if (!runtimeMinutes) {
@@ -505,7 +515,9 @@ export function buildWatchlistResurfacingExplanations(args: {
           ? "Saved to your watchlist and available on your services"
           : "Back on your radar from your watchlist"
         : args.availabilityMatch === "selected_services"
-          ? `${savedByLabel ?? "Saved"} and available for ${namesLabel} now`
+          ? savedByLabel
+            ? `Saved by ${savedByLabel} and available for ${namesLabel} now`
+            : `Available for ${namesLabel} now`
           : savedByLabel
             ? `Saved by ${savedByLabel} for ${namesLabel}`
             : `Back on ${namesLabel}'s radar`,
@@ -779,7 +791,7 @@ async function getRecommendationContextData(args: {
   };
 }
 
-async function getWatchlistRecommendationLanes(args: {
+async function buildWatchlistResurfacingSnapshot(args: {
   userIds: string[];
   householdId: string;
   mode: RecommendationModeShape;
@@ -787,6 +799,7 @@ async function getWatchlistRecommendationLanes(args: {
   profile: TasteProfile;
   sharedGenres: string[];
   groupWatchedKeys: Set<string>;
+  maxPerLane?: number;
 }) {
   const watchlistInteractions = await prisma.userTitleInteraction.findMany({
     where: {
@@ -812,12 +825,16 @@ async function getWatchlistRecommendationLanes(args: {
   });
 
   if (watchlistInteractions.length === 0) {
-    return [] as RecommendationLane[];
+    return {
+      lanes: [] as RecommendationLane[],
+      candidates: [] as WatchlistResurfacingCandidate[],
+    };
   }
 
   const grouped = new Map<
     string,
     {
+      titleCacheId: string;
       title: TitleSummary;
       savedByNames: Set<string>;
       latestUpdatedAt: Date;
@@ -840,11 +857,13 @@ async function getWatchlistRecommendationLanes(args: {
     }
 
     grouped.set(key, {
+      titleCacheId: interaction.title.id,
       title,
       savedByNames: new Set([interaction.user.name]),
       latestUpdatedAt: interaction.updatedAt,
     });
   });
+  const maxPerLane = args.maxPerLane ?? 4;
 
   const hydratedTitles = await hydrateProvidersForTitles(
     [...grouped.values()].map((entry) => entry.title),
@@ -859,16 +878,18 @@ async function getWatchlistRecommendationLanes(args: {
   const ranked = [...grouped.entries()]
     .map(([key, candidate]) => {
       const title = hydratedByKey.get(key) ?? candidate.title;
+      const savedByNames = [...candidate.savedByNames].sort((left, right) =>
+        left.localeCompare(right),
+      );
 
       return {
+        titleCacheId: candidate.titleCacheId,
         item: scoreWatchlistResurfacingCandidate({
           title,
           profile: args.profile,
           mode: args.mode,
           activeNames: args.activeNames,
-          savedByNames: [...candidate.savedByNames].sort((left, right) =>
-            left.localeCompare(right),
-          ),
+          savedByNames,
           sharedGenres: args.sharedGenres,
           currentContextWatched:
             args.mode === "solo" ? args.profile.watchedTmdbKeys.includes(key) : false,
@@ -876,6 +897,7 @@ async function getWatchlistRecommendationLanes(args: {
             args.mode === "group" ? args.groupWatchedKeys.has(key) : false,
         }),
         latestUpdatedAt: candidate.latestUpdatedAt,
+        savedByNames,
         availabilityMatch: classifySelectedServiceAvailability(
           title,
           args.profile.preferredProviders,
@@ -886,8 +908,10 @@ async function getWatchlistRecommendationLanes(args: {
       (
         entry,
       ): entry is {
+        titleCacheId: string;
         item: RecommendationItem;
         latestUpdatedAt: Date;
+        savedByNames: string[];
         availabilityMatch: SelectedServiceAvailability;
       } => Boolean(entry.item),
     )
@@ -901,18 +925,34 @@ async function getWatchlistRecommendationLanes(args: {
 
   const availableNowItems = ranked
     .filter((entry) => entry.availabilityMatch === "selected_services")
-    .map((entry) => entry.item)
-    .slice(0, 4);
+    .map((entry) => ({
+      laneId: "available_now" as const,
+      titleCacheId: entry.titleCacheId,
+      item: entry.item,
+      availabilityMatch: entry.availabilityMatch,
+      latestUpdatedAt: entry.latestUpdatedAt.toISOString(),
+      savedByNames: entry.savedByNames,
+    }))
+    .slice(0, maxPerLane);
   const usedKeys = new Set(
-    availableNowItems.map((item) => toTmdbKey(item.title.tmdbId, item.title.mediaType)),
+    availableNowItems.map((entry) =>
+      toTmdbKey(entry.item.title.tmdbId, entry.item.title.mediaType),
+    ),
   );
   const backOnRadarItems = ranked
     .filter(
       (entry) =>
         !usedKeys.has(toTmdbKey(entry.item.title.tmdbId, entry.item.title.mediaType)),
     )
-    .map((entry) => entry.item)
-    .slice(0, 4);
+    .map((entry) => ({
+      laneId: "back_on_your_radar" as const,
+      titleCacheId: entry.titleCacheId,
+      item: entry.item,
+      availabilityMatch: entry.availabilityMatch,
+      latestUpdatedAt: entry.latestUpdatedAt.toISOString(),
+      savedByNames: entry.savedByNames,
+    }))
+    .slice(0, maxPerLane);
 
   const lanes: RecommendationLane[] = [];
 
@@ -924,7 +964,7 @@ async function getWatchlistRecommendationLanes(args: {
         args.mode === "group"
           ? "Saved titles that this active group can actually start from the services already in play."
           : "Saved titles that are currently practical to start from the services tied to this profile.",
-      items: availableNowItems,
+      items: availableNowItems.map((entry) => entry.item),
     });
   }
 
@@ -936,11 +976,43 @@ async function getWatchlistRecommendationLanes(args: {
         args.mode === "group"
           ? "Saved titles from the selected members that still fit tonight and have not been watched by this exact group."
           : "Saved titles that still fit this profile and have not been watched here yet.",
-      items: backOnRadarItems,
+      items: backOnRadarItems.map((entry) => entry.item),
     });
   }
 
-  return lanes;
+  return {
+    lanes,
+    candidates: [...availableNowItems, ...backOnRadarItems] as WatchlistResurfacingCandidate[],
+  };
+}
+
+export async function getWatchlistResurfacingSnapshot(args: {
+  userIds: string[];
+  householdId: string;
+  maxPerLane?: number;
+}) {
+  const context = await getRecommendationContextData({
+    userIds: args.userIds,
+    householdId: args.householdId,
+  });
+  const snapshot = await buildWatchlistResurfacingSnapshot({
+    userIds: args.userIds,
+    householdId: args.householdId,
+    mode: context.mode,
+    activeNames: context.activeNames,
+    profile: context.profile,
+    sharedGenres: context.sharedGenres,
+    groupWatchedKeys: context.groupWatchedKeys,
+    maxPerLane: args.maxPerLane,
+  });
+
+  return {
+    mode: context.mode,
+    activeNames: context.activeNames,
+    profile: context.profile,
+    lanes: snapshot.lanes,
+    candidates: snapshot.candidates,
+  };
 }
 
 export async function getRecommendedTitles(args: {
@@ -985,7 +1057,7 @@ export async function getRecommendedTitles(args: {
     .filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score)
     .slice(0, 18);
-  const lanes = await getWatchlistRecommendationLanes({
+  const resurfacingSnapshot = await buildWatchlistResurfacingSnapshot({
     userIds: args.userIds,
     householdId: args.householdId,
     mode,
@@ -994,6 +1066,7 @@ export async function getRecommendedTitles(args: {
     sharedGenres,
     groupWatchedKeys,
   });
+  const lanes = resurfacingSnapshot.lanes;
 
   const explanationJson = {
     topGenres: profile.preferredGenres.slice(0, 3),

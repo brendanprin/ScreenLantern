@@ -36,6 +36,12 @@ enum HouseholdRole {
   MEMBER
 }
 
+enum ReminderCategory {
+  AVAILABLE_NOW
+  WATCHLIST_RESURFACE
+  GROUP_WATCH_CANDIDATE
+}
+
 model Household {
   id                 String              @id @default(cuid())
   name               String
@@ -45,6 +51,7 @@ model Household {
   recommendationContexts UserRecommendationContext[]
   recommendationRuns RecommendationRun[]
   groupWatchSessions GroupWatchSession[]
+  reminders          UserReminder[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -69,6 +76,7 @@ model User {
   recommendationContext UserRecommendationContext?
   requestedRuns      RecommendationRun[]     @relation("RunRequester")
   createdGroupWatchSessions GroupWatchSession[] @relation("CreatedGroupWatchSessions")
+  reminders          UserReminder[]
 }
 
 model HouseholdGroup {
@@ -83,6 +91,7 @@ model HouseholdGroup {
   members     HouseholdGroupMember[]
   recommendationContexts UserRecommendationContext[] @relation("SavedRecommendationContextGroup")
   groupWatchSessions GroupWatchSession[] @relation("SavedGroupWatchSessions")
+  reminders   UserReminder[]         @relation("SavedReminderGroup")
 
   @@unique([householdId, name])
 }
@@ -133,6 +142,7 @@ model TitleCache {
   lastSyncedAt       DateTime               @default(now())
   interactions       UserTitleInteraction[]
   groupWatchSessions GroupWatchSession[]
+  reminders          UserReminder[]
 
   @@unique([tmdbId, mediaType])
 }
@@ -202,4 +212,33 @@ model GroupWatchSession {
 
   @@unique([householdId, titleCacheId, participantKey])
   @@index([householdId, watchedAt])
+}
+
+model UserReminder {
+  id              String               @id @default(cuid())
+  userId          String
+  householdId     String
+  titleCacheId    String
+  mode            RecommendationMode
+  category        ReminderCategory
+  contextKey      String
+  contextLabel    String
+  selectedUserIds String[]             @default([])
+  savedGroupId    String?
+  summary         String
+  detail          String?
+  explanationJson Json?
+  isActive        Boolean              @default(true)
+  readAt          DateTime?
+  dismissedAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household       Household            @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  title           TitleCache           @relation(fields: [titleCacheId], references: [id], onDelete: Cascade)
+  savedGroup      HouseholdGroup?      @relation("SavedReminderGroup", fields: [savedGroupId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, contextKey, category, titleCacheId])
+  @@index([userId, contextKey, isActive, readAt])
+  @@index([householdId, updatedAt])
 }

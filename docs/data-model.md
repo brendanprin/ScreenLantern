@@ -74,6 +74,13 @@ In the current MVP implementation, membership is represented directly on the `Us
 - Stores the participant set distinctly from personal watched interactions
 - Preserves a future-friendly shared-watch signal for recommendations and AI features
 
+### UserReminder
+
+- Persisted in-app reminder row for one signed-in user and one resolved recommendation context
+- Stores lightweight reminder state such as active, read, and dismissed
+- Uses reminder categories for available-now, watchlist resurfacing, and group-watch candidates
+- Carries explanation text for reuse in the reminder inbox UI
+
 ## Recommended Relational Shape
 
 ### Users and Households
@@ -211,6 +218,34 @@ Modes:
   - `watchedAt`
   - `createdAt`
 
+### In-App Reminders
+
+- `UserReminder`
+  - `id`
+  - `userId`
+  - `householdId`
+  - `titleCacheId`
+  - `mode`
+  - `category`
+  - `contextKey`
+  - `contextLabel`
+  - `selectedUserIds`
+  - `savedGroupId`
+  - `summary`
+  - `detail`
+  - `explanationJson`
+  - `isActive`
+  - `readAt`
+  - `dismissedAt`
+  - `createdAt`
+  - `updatedAt`
+
+Reminder categories:
+
+- `AVAILABLE_NOW`
+- `WATCHLIST_RESURFACE`
+- `GROUP_WATCH_CANDIDATE`
+
 ## Modeling Notes
 
 - Separate rows per interaction type make state transitions easy to audit and query.
@@ -227,4 +262,7 @@ Modes:
 - Member removal preserves the account in MVP by moving the removed user into a new solo household instead of deleting the user.
 - Ownership transfer does not require schema changes in MVP+; it is modeled by updating `User.householdRole` for the current owner and promoted member.
 - Protected request helpers re-read the current user from the database so governance changes are reflected immediately even with JWT sessions.
+- `UserReminder` is keyed by user, context, category, and title so the same title can appear differently in solo and group reminder states without collisions.
+- Reminder rows are generated on demand from resurfacing logic, not from a scheduled notification pipeline.
+- `readAt` and `dismissedAt` live on the reminder row and do not affect watchlist state.
 - Rewatch tracking, group watch-session editing, and duplicate session history are deferred beyond MVP.

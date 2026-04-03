@@ -88,6 +88,12 @@ These demo personas exist to make local development and recommendation tuning ea
 - Hidden titles
 - Personal watched history remains distinct from group watch sessions
 - Watchlist items can be resurfaced on Home when they are practical to watch now or still fit the current context
+- The Library acts as a decision workspace with smart sections such as `Available now`, `Best from your watchlist`, `Good for this group`, `Recently saved`, `Already watched`, and `Hidden / not interested`
+- Library sections reuse the recommendation explanation model to show concise “why now” reasoning without exposing raw score math
+- Provider-aware Library badges distinguish selected-service matches, availability elsewhere, and unknown provider state
+- Quick triage actions stay context-aware:
+  - solo Library views can mark watched, toggle watchlist, like, dislike, and hide
+  - group decision views can mark watched by current group without rewriting every participant's personal library state
 
 ### Recommendations
 
@@ -104,6 +110,9 @@ These demo personas exist to make local development and recommendation tuning ea
 - Unknown or missing provider data can still allow a title to resurface, but never as a positive “available now” match
 - Group watchlist resurfacing uses titles saved by at least one selected member, but exact-group watch history suppresses stale group rewatches
 - Group resurfacing treats those saved titles as individual watchlist intent, not as a permanent shared household watchlist
+- The app can surface an in-app reminder center for the active context using the same resurfacing rules
+- Reminder items can be marked read or dismissed without affecting the underlying watchlist entry
+- Group reminders remain context-specific and do not imply a shared household watchlist
 
 ### Group Watch Sessions
 
@@ -142,6 +151,8 @@ These demo personas exist to make local development and recommendation tuning ea
 - Make ownership and invite authority legible without building a heavy admin system
 - Make saved titles useful again without requiring users to remember what they already queued
 - Make watchlist resurfacing feel practical now without needing notification infrastructure
+- Make in-app reminders feel proactive without turning ScreenLantern into a generic notifications feed
+- Make the Library a faster decision surface than a plain saved-items bucket
 
 ## Non-Goals
 
@@ -168,4 +179,6 @@ These demo personas exist to make local development and recommendation tuning ea
 - Recommendation cards clearly explain why a title was surfaced in solo or group mode
 - Saved watchlist titles can be resurfaced on Home when they are currently practical or still a good fit
 - “Available now” resurfacing only promotes titles with known provider availability on selected services
+- The reminders inbox can show active solo or group reminders with readable context labels and simple actions
+- The Library can surface context-aware “what should we watch from what we already saved?” sections with provider-aware badges and quick triage actions
 - The codebase exposes clear service functions that a future AI layer could call

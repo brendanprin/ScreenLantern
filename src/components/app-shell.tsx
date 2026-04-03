@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ActiveContextProvider } from "@/components/active-context-provider";
 import { ActiveContextSwitcher } from "@/components/active-context-switcher";
 import { NavLink } from "@/components/nav-link";
+import { ReminderNavLink } from "@/components/reminders/reminder-nav-link";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { APP_NAME, NAV_ITEMS } from "@/lib/constants";
@@ -56,7 +57,11 @@ export function AppShell({
               </p>
             </div>
             <nav className="flex flex-col gap-2">
-              {NAV_ITEMS.map((item) => (
+              {NAV_ITEMS.slice(0, 1).map((item) => (
+                <NavLink key={item.href} href={item.href} label={item.label} />
+              ))}
+              <ReminderNavLink />
+              {NAV_ITEMS.slice(1).map((item) => (
                 <NavLink key={item.href} href={item.href} label={item.label} />
               ))}
             </nav>

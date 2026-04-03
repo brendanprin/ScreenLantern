@@ -327,6 +327,32 @@
   - Solo watched vs group watched distinction coverage
   - Authorization coverage for group watch creation
 
+### Ticket 6.4: Turn the Library into a context-aware decision workspace
+
+- Priority: P1
+- Goal: Help users pick something from what they already saved instead of treating the Library as a passive bucket list.
+- Scope:
+  - Smart Library sections such as `Available now`, `Best from your watchlist`, `Good for this group`, `Recently saved`, `Already watched`, and deprioritized titles
+  - Provider-aware badges and lightweight Library filters/sorts
+  - Reuse of recommendation explanations on Library cards
+  - Quick triage actions that stay safe across solo and group contexts
+- Technical notes:
+  - Reuse watchlist resurfacing and provider-availability logic instead of creating a second recommendation engine
+  - Solo actions should target the selected solo profile
+  - Group sections should suppress exact-group watched titles from fresh candidate lanes
+  - Group Library actions should avoid ambiguous shared writes into every participant's personal taste state
+- Acceptance criteria:
+  - Library clearly reflects the active solo or group context
+  - Users can quickly see what is available now on selected services from their Library
+  - Group Library views can surface good shared candidates without implying a shared household watchlist
+  - Hidden, disliked, and already watched titles are still available for cleanup without dominating fresh decision sections
+- Test expectations:
+  - Solo Library intelligence rendering coverage
+  - Group Library intelligence rendering coverage
+  - Provider-aware badge and filter coverage
+  - Exact-group-watch suppression coverage
+  - Quick triage action coverage
+
 ## Epic 7: Solo Recommendation Engine
 
 ### Ticket 7.1: Create user taste profile service
@@ -405,6 +431,30 @@
   - Unknown-provider fallback coverage
   - Exact-group-watch suppression coverage
   - Home-lane explanation rendering coverage
+
+### Ticket 7.5: Add in-app reminder center for resurfaced watchlist titles
+
+- Priority: P1
+- Goal: Give users a lightweight in-product inbox for resurfaced titles without introducing push or email delivery yet.
+- Scope:
+  - Dedicated reminders page and shell badge
+  - Persisted reminder model with active, read, and dismissed state
+  - Reminder generation from existing watchlist resurfacing and provider-availability logic
+  - Solo and group reminder context labeling
+- Technical notes:
+  - Reuse resurfacing candidates instead of adding a second recommendation engine
+  - Keep reminder state user-scoped even when the active context is a group
+  - Refresh reminders on demand from relevant app loads instead of background jobs
+- Acceptance criteria:
+  - Users can open a reminders inbox from the protected shell
+  - Available-now and resurfaced watchlist titles can appear as reminder items
+  - Users can mark reminders read or dismiss them
+  - Exact-group-watched titles do not produce misleading group reminders
+- Test expectations:
+  - Solo reminder generation coverage
+  - Group reminder generation coverage
+  - Reminder read and dismiss coverage
+  - Protected reminder API coverage
 
 ## Epic 8: Combined Recommendation Engine
 

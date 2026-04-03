@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { InteractionButtons } from "@/components/interaction-buttons";
 import { TitlePoster } from "@/components/title-poster";
 import type {
+  GroupWatchState,
   RecommendationExplanation,
   TitleSummary,
 } from "@/lib/types";
@@ -20,22 +21,36 @@ import {
 interface TitleCardProps {
   title: TitleSummary;
   activeTypes?: InteractionType[];
+  actingUserId?: string;
+  activeGroupWatch?: GroupWatchState;
+  showGroupWatchAction?: boolean;
+  showSoloWatchedAction?: boolean;
+  showPreferenceActions?: boolean;
+  showActions?: boolean;
   recommendationExplanations?: RecommendationExplanation[];
   recommendationContextLabel?: string;
   recommendationBadges?: string[];
+  testId?: string;
 }
 
 export function TitleCard({
   title,
   activeTypes = [],
+  actingUserId,
+  activeGroupWatch,
+  showGroupWatchAction = false,
+  showSoloWatchedAction = true,
+  showPreferenceActions = true,
+  showActions = true,
   recommendationExplanations = [],
   recommendationContextLabel,
   recommendationBadges = [],
+  testId,
 }: TitleCardProps) {
   const primaryExplanation = recommendationExplanations[0];
 
   return (
-    <Card className="overflow-hidden bg-white/80">
+    <Card className="overflow-hidden bg-white/80" data-testid={testId}>
       <CardContent className="p-4">
         <div className="grid gap-4 md:grid-cols-[170px_minmax(0,1fr)]">
           <Link href={`/app/title/${title.mediaType}/${title.tmdbId}`}>
@@ -77,7 +92,10 @@ export function TitleCard({
             </div>
             {primaryExplanation ? (
               <div className="rounded-xl border border-primary/15 bg-primary/5 p-3">
-                <p className="text-sm font-medium text-primary">
+                <p
+                  className="text-sm font-medium text-primary"
+                  data-testid={testId ? `${testId}-primary-explanation` : undefined}
+                >
                   {primaryExplanation.summary}
                 </p>
                 <details className="mt-2">
@@ -107,7 +125,17 @@ export function TitleCard({
                 </details>
               </div>
             ) : null}
-            <InteractionButtons title={title} activeTypes={activeTypes} />
+            {showActions ? (
+              <InteractionButtons
+                title={title}
+                activeTypes={activeTypes}
+                actingUserId={actingUserId}
+                activeGroupWatch={activeGroupWatch}
+                showGroupWatchAction={showGroupWatchAction}
+                showSoloWatchedAction={showSoloWatchedAction}
+                showPreferenceActions={showPreferenceActions}
+              />
+            ) : null}
           </div>
         </div>
       </CardContent>

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getApiCurrentUserContext } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { setInteraction } from "@/lib/services/interactions";
 import { titlePayloadSchema } from "@/lib/validations/title";
 
@@ -11,6 +12,7 @@ const schema = z.object({
   interactionType: z.nativeEnum(InteractionType),
   active: z.boolean(),
   sourceContext: z.nativeEnum(SourceContext).optional(),
+  actingUserId: z.string().min(1).optional(),
 });
 
 export async function POST(request: Request) {
@@ -27,8 +29,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid interaction payload." }, { status: 400 });
   }
 
+  const actingUserId = parsed.data.actingUserId ?? user.userId;
+
+  if (actingUserId !== user.userId) {
+    const actingUser = await prisma.user.findFirst({
+      where: {
+        id: actingUserId,
+        householdId: user.householdId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!actingUser) {
+      return NextResponse.json(
+        { error: "You cannot update interactions for that profile." },
+        { status: 403 },
+      );
+    }
+  }
+
   await setInteraction({
-    userId: user.userId,
+    userId: actingUserId,
     title: parsed.data.title,
     interactionType: parsed.data.interactionType,
     active: parsed.data.active,
