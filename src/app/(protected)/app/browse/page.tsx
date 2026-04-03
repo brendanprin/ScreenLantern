@@ -1,12 +1,14 @@
-import { getGenreOptions } from "@/lib/services/catalog";
-import { discoverTitles } from "@/lib/services/catalog";
 import { getCurrentUserContext } from "@/lib/auth";
+import { PaginationNav } from "@/components/pagination-nav";
+import { TitleCard } from "@/components/title-card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  discoverTitles,
+  getGenreOptions,
+  getProviderOptions,
+} from "@/lib/services/catalog";
 import { getInteractionMap } from "@/lib/services/interactions";
 import { discoverParamsSchema } from "@/lib/validations/catalog";
-import { PROVIDER_OPTIONS } from "@/lib/constants";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TitleCard } from "@/components/title-card";
-import { PaginationNav } from "@/components/pagination-nav";
 
 interface BrowsePageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -44,8 +46,15 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
       mediaType: title.mediaType,
     })),
   );
+  const [genres, providers] = await Promise.all([
+    getGenreOptions(parsed.mediaType),
+    getProviderOptions(parsed.mediaType),
+  ]);
 
-  const genres = getGenreOptions();
+  const yearPlaceholder =
+    parsed.mediaType === "movie" ? "Release year" : "First air year";
+  const runtimePlaceholder =
+    parsed.mediaType === "movie" ? "Max runtime (minutes)" : "Max episode runtime";
 
   return (
     <div className="space-y-6">
@@ -82,7 +91,7 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
               name="provider"
             >
               <option value="">Any provider</option>
-              {PROVIDER_OPTIONS.map((provider) => (
+              {providers.map((provider) => (
                 <option key={provider} value={provider}>
                   {provider}
                 </option>
@@ -92,14 +101,14 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
               className="h-11 rounded-2xl border border-input bg-background/80 px-4 py-2"
               defaultValue={typeof parsed.year === "number" ? parsed.year : ""}
               name="year"
-              placeholder="Release year"
+              placeholder={yearPlaceholder}
               type="number"
             />
             <input
               className="h-11 rounded-2xl border border-input bg-background/80 px-4 py-2"
               defaultValue={typeof parsed.runtimeMax === "number" ? parsed.runtimeMax : ""}
               name="runtimeMax"
-              placeholder="Max runtime"
+              placeholder={runtimePlaceholder}
               type="number"
             />
             <select
@@ -109,7 +118,7 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
             >
               <option value="popularity.desc">Most popular</option>
               <option value="vote_average.desc">Best rated</option>
-              <option value="primary_release_date.desc">Newest first</option>
+              <option value="newest.desc">Newest first</option>
             </select>
             <button className="rounded-full bg-primary px-4 py-2 text-primary-foreground xl:col-span-2">
               Update results
@@ -117,6 +126,14 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
           </form>
         </CardContent>
       </Card>
+
+      {results.notice ? (
+        <Card className="border-amber-200 bg-amber-50/80">
+          <CardContent className="p-4 text-sm text-amber-900">
+            {results.notice}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-5">
         {results.results.map((title) => (
@@ -129,6 +146,14 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
           />
         ))}
       </div>
+
+      {results.results.length === 0 ? (
+        <Card className="bg-white/70">
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            No titles matched these filters. Try broadening the year, runtime, or provider selections.
+          </CardContent>
+        </Card>
+      ) : null}
 
       <PaginationNav
         page={results.page}
@@ -149,4 +174,3 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
     </div>
   );
 }
-

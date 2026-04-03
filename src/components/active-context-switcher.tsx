@@ -14,11 +14,17 @@ import { useActiveContext } from "@/components/active-context-provider";
 
 export function ActiveContextSwitcher() {
   const {
+    householdMembers,
     savedGroups,
+    selectedUserIds,
     activeNames,
+    activeMode,
+    activeSavedGroupId,
     isGroupMode,
     setSolo,
     activateSavedGroup,
+    isSaving,
+    error,
   } = useActiveContext();
 
   return (
@@ -37,12 +43,30 @@ export function ActiveContextSwitcher() {
         </div>
       </div>
       <div className="flex flex-col gap-3">
-        <Button variant="outline" onClick={setSolo}>
-          Use solo profile
+        <Select
+          onValueChange={(value) => setSolo(value)}
+          value={activeMode === "SOLO" ? selectedUserIds[0] : undefined}
+        >
+          <SelectTrigger aria-label="Solo profile">
+            <SelectValue placeholder="Switch to a solo profile" />
+          </SelectTrigger>
+          <SelectContent>
+            {householdMembers.map((member) => (
+              <SelectItem key={member.id} value={member.id}>
+                {member.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" onClick={() => setSolo()}>
+          Use my solo profile
         </Button>
         {savedGroups.length > 0 ? (
-          <Select onValueChange={activateSavedGroup}>
-            <SelectTrigger>
+          <Select
+            onValueChange={activateSavedGroup}
+            value={activeSavedGroupId ?? undefined}
+          >
+            <SelectTrigger aria-label="Saved group">
               <SelectValue placeholder="Switch to a saved household group" />
             </SelectTrigger>
             <SelectContent>
@@ -54,8 +78,11 @@ export function ActiveContextSwitcher() {
             </SelectContent>
           </Select>
         ) : null}
+        {isSaving ? (
+          <p className="text-xs text-muted-foreground">Syncing recommendation context...</p>
+        ) : null}
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </div>
     </div>
   );
 }
-

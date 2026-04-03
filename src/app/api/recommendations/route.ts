@@ -1,16 +1,31 @@
 import { NextResponse } from "next/server";
 
-import { getCurrentUserContext } from "@/lib/auth";
+import { getApiCurrentUserContext } from "@/lib/auth";
 import { getRecommendedTitles } from "@/lib/services/recommendations";
 import { prisma } from "@/lib/prisma";
+import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 
 export async function GET(request: Request) {
-  const user = await getCurrentUserContext();
+  const user = await getApiCurrentUserContext();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
-  const requestedUserIds = searchParams
+  const explicitUserIds = searchParams
     .get("userIds")
     ?.split(",")
-    .filter(Boolean) ?? [user.userId];
+    .filter(Boolean);
+  const requestedUserIds =
+    explicitUserIds && explicitUserIds.length > 0
+      ? explicitUserIds
+      : (
+          await getRecommendationContextBootstrap({
+            userId: user.userId,
+            householdId: user.householdId,
+          })
+        ).context.selectedUserIds;
 
   const members = await prisma.user.findMany({
     where: {
@@ -32,4 +47,3 @@ export async function GET(request: Request) {
 
   return NextResponse.json(recommendations);
 }
-

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getCurrentUserContext } from "@/lib/auth";
+import { getApiCurrentUserContext } from "@/lib/auth";
 import { updateProviderPreferences } from "@/lib/services/household";
 
 const schema = z.object({
@@ -9,7 +9,12 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  const user = await getCurrentUserContext();
+  const user = await getApiCurrentUserContext();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const body = await request.json();
   const parsed = schema.safeParse(body);
 

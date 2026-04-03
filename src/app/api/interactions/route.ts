@@ -2,37 +2,24 @@ import { InteractionType, SourceContext } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireSession } from "@/lib/auth";
+import { getApiCurrentUserContext } from "@/lib/auth";
 import { setInteraction } from "@/lib/services/interactions";
+import { titlePayloadSchema } from "@/lib/validations/title";
 
 const schema = z.object({
-  title: z.object({
-    tmdbId: z.number(),
-    mediaType: z.enum(["movie", "tv"]),
-    title: z.string(),
-    overview: z.string(),
-    posterPath: z.string().nullable(),
-    backdropPath: z.string().nullable(),
-    releaseDate: z.string().nullable(),
-    runtimeMinutes: z.number().nullable().optional(),
-    genres: z.array(z.string()),
-    voteAverage: z.number().nullable().optional(),
-    popularity: z.number().nullable().optional(),
-    providers: z.array(
-      z.object({
-        name: z.string(),
-        id: z.number().optional(),
-        logoPath: z.string().nullable().optional(),
-        type: z.string().optional(),
-      }),
-    ),
-  }),
+  title: titlePayloadSchema,
   interactionType: z.nativeEnum(InteractionType),
   active: z.boolean(),
+  sourceContext: z.nativeEnum(SourceContext).optional(),
 });
 
 export async function POST(request: Request) {
-  const session = await requireSession();
+  const user = await getApiCurrentUserContext();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
   const body = await request.json();
   const parsed = schema.safeParse(body);
 
@@ -41,13 +28,15 @@ export async function POST(request: Request) {
   }
 
   await setInteraction({
-    userId: session.user.id,
+    userId: user.userId,
     title: parsed.data.title,
     interactionType: parsed.data.interactionType,
     active: parsed.data.active,
-    sourceContext: SourceContext.MANUAL,
+    sourceContext:
+      parsed.data.sourceContext && parsed.data.sourceContext !== SourceContext.GROUP
+        ? parsed.data.sourceContext
+        : SourceContext.MANUAL,
   });
 
   return NextResponse.json({ ok: true });
 }
-

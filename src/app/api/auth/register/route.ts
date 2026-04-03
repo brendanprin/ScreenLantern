@@ -1,6 +1,7 @@
 import { hash } from "bcryptjs";
 import { NextResponse } from "next/server";
 
+import { createHouseholdWithOwner, redeemHouseholdInviteForRegistration } from "@/lib/services/household";
 import { prisma } from "@/lib/prisma";
 import { signUpSchema } from "@/lib/validations/auth";
 
@@ -28,27 +29,33 @@ export async function POST(request: Request) {
     );
   }
 
-  const householdName =
-    parsed.data.householdName?.trim() || `${parsed.data.name}'s Household`;
   const passwordHash = await hash(parsed.data.password, 12);
 
-  await prisma.$transaction(async (tx) => {
-    const household = await tx.household.create({
-      data: {
-        name: householdName,
-      },
-    });
-
-    await tx.user.create({
-      data: {
-        email,
+  try {
+    if (parsed.data.onboardingMode === "join") {
+      await redeemHouseholdInviteForRegistration({
+        inviteCode: parsed.data.inviteCode ?? "",
         name: parsed.data.name,
+        email,
         passwordHash,
-        householdId: household.id,
+      });
+    } else {
+      await createHouseholdWithOwner({
+        name: parsed.data.name,
+        email,
+        passwordHash,
+        householdName: parsed.data.householdName ?? "",
+      });
+    }
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Registration failed.",
       },
-    });
-  });
+      { status: 400 },
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }
-

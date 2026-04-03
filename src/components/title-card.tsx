@@ -5,20 +5,35 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { InteractionButtons } from "@/components/interaction-buttons";
 import { TitlePoster } from "@/components/title-poster";
-import type { TitleSummary } from "@/lib/types";
-import { formatReleaseYear, formatRuntime, mediaTypeLabel } from "@/lib/utils";
+import type {
+  RecommendationExplanation,
+  TitleSummary,
+} from "@/lib/types";
+import {
+  cn,
+  dedupeByKey,
+  formatReleaseYear,
+  formatRuntime,
+  mediaTypeLabel,
+} from "@/lib/utils";
 
 interface TitleCardProps {
   title: TitleSummary;
   activeTypes?: InteractionType[];
-  highlightReason?: string;
+  recommendationExplanations?: RecommendationExplanation[];
+  recommendationContextLabel?: string;
+  recommendationBadges?: string[];
 }
 
 export function TitleCard({
   title,
   activeTypes = [],
-  highlightReason,
+  recommendationExplanations = [],
+  recommendationContextLabel,
+  recommendationBadges = [],
 }: TitleCardProps) {
+  const primaryExplanation = recommendationExplanations[0];
+
   return (
     <Card className="overflow-hidden bg-white/80">
       <CardContent className="p-4">
@@ -41,17 +56,56 @@ export function TitleCard({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {recommendationBadges.map((badge) => (
+                <Badge
+                  key={badge}
+                  variant={badge === "Available now" ? "default" : "secondary"}
+                >
+                  {badge}
+                </Badge>
+              ))}
               {title.genres.slice(0, 4).map((genre) => (
                 <Badge key={genre} variant="outline">
                   {genre}
                 </Badge>
               ))}
-              {title.providers.slice(0, 2).map((provider) => (
-                <Badge key={provider.name}>{provider.name}</Badge>
-              ))}
+              {dedupeByKey(title.providers, (provider) => provider.name)
+                .slice(0, 2)
+                .map((provider) => (
+                  <Badge key={provider.name}>{provider.name}</Badge>
+                ))}
             </div>
-            {highlightReason ? (
-              <p className="text-sm font-medium text-primary">{highlightReason}</p>
+            {primaryExplanation ? (
+              <div className="rounded-xl border border-primary/15 bg-primary/5 p-3">
+                <p className="text-sm font-medium text-primary">
+                  {primaryExplanation.summary}
+                </p>
+                <details className="mt-2">
+                  <summary className="cursor-pointer list-none text-sm font-medium text-primary/80 transition hover:text-primary">
+                    Why this{recommendationContextLabel ? ` for ${recommendationContextLabel}` : ""}?
+                  </summary>
+                  <div className="mt-3 space-y-2">
+                    {recommendationExplanations.map((explanation, index) => (
+                      <div
+                        key={`${explanation.category}-${index}`}
+                        className={cn(
+                          "rounded-lg border border-primary/10 bg-white/80 px-3 py-2",
+                          index === 0 && "border-primary/20",
+                        )}
+                      >
+                        <p className="text-sm font-medium text-slate-900">
+                          {explanation.summary}
+                        </p>
+                        {explanation.detail ? (
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {explanation.detail}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
             ) : null}
             <InteractionButtons title={title} activeTypes={activeTypes} />
           </div>
@@ -60,4 +114,3 @@ export function TitleCard({
     </Card>
   );
 }
-

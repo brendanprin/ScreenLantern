@@ -1,50 +1,32 @@
 import { AppShell } from "@/components/app-shell";
-import { requireSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getCurrentUserContext } from "@/lib/auth";
+import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 
 export default async function ProtectedLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await requireSession();
-
-  const household = await prisma.household.findUniqueOrThrow({
-    where: { id: session.user.householdId },
-    include: {
-      users: {
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      },
-      groups: {
-        orderBy: { name: "asc" },
-        include: {
-          members: {
-            select: {
-              userId: true,
-            },
-          },
-        },
-      },
-    },
+  const user = await getCurrentUserContext();
+  const recommendationContext = await getRecommendationContextBootstrap({
+    userId: user.userId,
+    householdId: user.householdId,
   });
 
   return (
     <AppShell
       currentUser={{
-        id: session.user.id,
-        name: session.user.name ?? "Member",
-        householdId: household.id,
+        id: user.userId,
+        name: user.name,
+        householdId: user.householdId,
+        householdName: user.householdName,
+        householdRole: user.householdRole,
       }}
-      householdMembers={household.users}
-      savedGroups={household.groups.map((group) => ({
-        id: group.id,
-        name: group.name,
-        userIds: group.members.map((member) => member.userId),
-      }))}
+      householdMembers={recommendationContext.householdMembers}
+      savedGroups={recommendationContext.savedGroups}
+      initialContext={recommendationContext.context}
     >
       {children}
     </AppShell>
   );
 }
-

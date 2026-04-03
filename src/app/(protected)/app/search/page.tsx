@@ -75,9 +75,18 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       </Card>
 
       {parsed.query ? (
-        <p className="text-sm text-muted-foreground">
-          {results.totalResults} result{results.totalResults === 1 ? "" : "s"} for &quot;{parsed.query}&quot;
-        </p>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {results.totalResults} result{results.totalResults === 1 ? "" : "s"} for &quot;{parsed.query}&quot;
+          </p>
+          {results.notice ? (
+            <Card className="border-amber-200 bg-amber-50/80">
+              <CardContent className="p-4 text-sm text-amber-900">
+                {results.notice}
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
       ) : (
         <Card className="bg-white/70">
           <CardContent className="p-6 text-sm text-muted-foreground">
@@ -97,6 +106,14 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           />
         ))}
       </div>
+
+      {parsed.query && results.results.length === 0 && !results.notice ? (
+        <Card className="bg-white/70">
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            No matching titles turned up. Try a broader query or switch between movies and series.
+          </CardContent>
+        </Card>
+      ) : null}
 
       <PaginationNav
         page={results.page}

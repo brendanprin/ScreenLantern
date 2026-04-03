@@ -48,6 +48,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: user.name,
           householdId: user.householdId,
+          householdRole: user.householdRole,
           preferredProviders: user.preferredProviders,
         };
       },
@@ -58,6 +59,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.id = user.id;
         token.householdId = user.householdId as string;
+        token.householdRole = user.householdRole;
         token.preferredProviders = (user.preferredProviders as string[]) ?? [];
       }
 
@@ -67,6 +69,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = token.id as string;
         session.user.householdId = token.householdId as string;
+        session.user.householdRole = token.householdRole as "OWNER" | "MEMBER";
         session.user.preferredProviders =
           (token.preferredProviders as string[]) ?? [];
       }
@@ -75,4 +78,3 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
-

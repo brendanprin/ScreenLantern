@@ -6,13 +6,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PROVIDER_OPTIONS } from "@/lib/constants";
 
 interface ProviderPreferencesFormProps {
+  providerOptions: string[];
   selectedProviders: string[];
 }
 
 export function ProviderPreferencesForm({
+  providerOptions,
   selectedProviders,
 }: ProviderPreferencesFormProps) {
   const router = useRouter();
@@ -51,7 +52,7 @@ export function ProviderPreferencesForm({
           These providers lightly boost search and recommendation ranking when availability data is present.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
-          {PROVIDER_OPTIONS.map((provider) => (
+          {providerOptions.map((provider) => (
             <label
               key={provider}
               className="flex items-center gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3"
@@ -71,4 +72,3 @@ export function ProviderPreferencesForm({
     </Card>
   );
 }
-

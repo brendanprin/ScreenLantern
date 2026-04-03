@@ -60,6 +60,7 @@ export function CreateGroupForm({ members }: CreateGroupFormProps) {
         return;
       }
 
+      await response.json();
       setSelection(values.userIds);
       router.refresh();
     });
@@ -116,4 +117,3 @@ export function CreateGroupForm({ members }: CreateGroupFormProps) {
     </Card>
   );
 }
-

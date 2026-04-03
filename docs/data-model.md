@@ -14,6 +14,8 @@
 - Authentication identity
 - Profile metadata such as name and email
 - Belongs to one household in MVP
+- Carries a household role in MVP
+- Uses a single-owner governance model in MVP+, where exactly one user in a household should hold `OWNER`
 - Stores provider preferences and recommendation defaults
 
 ### Household
@@ -23,8 +25,15 @@
 
 ### HouseholdMembership
 
-- Associates users to a household
-- Stores role metadata if needed later
+In the current MVP implementation, membership is represented directly on the `User` row via `householdId` and `householdRole`.
+
+### HouseholdInvite
+
+- Single-use invite for joining an existing household
+- Created by an owner
+- Has expiration plus redeemed/revoked state
+- Assigns the joining user a role, currently `MEMBER`
+- Remains household-scoped after owner transfer, so a new owner can still view and revoke older invites
 
 ### HouseholdGroup
 
@@ -35,10 +44,17 @@
 
 - Join table between a saved group and users
 
+### UserRecommendationContext
+
+- One persisted recommendation context per signed-in user
+- Stores the last valid solo or group context for restoration across sessions and devices
+- Can point at a saved group or store an ad hoc member set
+
 ### TitleCache
 
 - Local cached metadata for TMDb titles
 - Stores media type, runtime, genres, poster, release info, and provider snapshot metadata
+- `lastSyncedAt` is used as an MVP freshness marker for provider and detail reuse
 
 ### UserTitleInteraction
 
@@ -51,6 +67,12 @@
 - Stores a recommendation request context and result summary
 - Supports solo or group mode
 - Useful for QA, analytics, and future explanations
+
+### GroupWatchSession
+
+- Records that a specific household combination watched a specific title together
+- Stores the participant set distinctly from personal watched interactions
+- Preserves a future-friendly shared-watch signal for recommendations and AI features
 
 ## Recommended Relational Shape
 
@@ -67,8 +89,24 @@
   - `email`
   - `passwordHash`
   - `householdId`
+  - `householdRole`
   - `preferredProviders`
   - `defaultMediaType`
+  - `createdAt`
+  - `updatedAt`
+
+### Household Invites
+
+- `HouseholdInvite`
+  - `id`
+  - `householdId`
+  - `createdById`
+  - `redeemedById`
+  - `code`
+  - `role`
+  - `expiresAt`
+  - `redeemedAt`
+  - `revokedAt`
   - `createdAt`
   - `updatedAt`
 
@@ -84,6 +122,18 @@
 - `HouseholdGroupMember`
   - `groupId`
   - `userId`
+
+### Persisted Recommendation Context
+
+- `UserRecommendationContext`
+  - `id`
+  - `userId`
+  - `householdId`
+  - `mode`
+  - `selectedUserIds`
+  - `savedGroupId`
+  - `createdAt`
+  - `updatedAt`
 
 ### Title Metadata
 
@@ -148,9 +198,33 @@ Modes:
 - `SOLO`
 - `GROUP`
 
+### Group Watch Sessions
+
+- `GroupWatchSession`
+  - `id`
+  - `householdId`
+  - `titleCacheId`
+  - `createdById`
+  - `savedGroupId`
+  - `participantKey`
+  - `participantUserIds`
+  - `watchedAt`
+  - `createdAt`
+
 ## Modeling Notes
 
 - Separate rows per interaction type make state transitions easy to audit and query.
-- Group watch events can be represented as multiple user interactions tied to one `RecommendationRun` or future `WatchSession`.
+- `UserRecommendationContext` belongs to the signed-in user, not to the household as a shared singleton.
+- Solo mode is represented as exactly one selected user id; group mode is represented as two or more selected user ids.
+- If a saved group becomes invalid or stale, context resolution falls back to the viewer's solo profile and the stored row is normalized.
+- Group watch sessions intentionally do not create personal `WATCHED` interactions for every participant.
+- Personal watched history and shared watch history are related but distinct data sets.
 - Cached TMDb metadata lets the UI reuse normalized title data without excessive refetching.
-- Provider availability can live in `providerSnapshot` JSON in MVP, then be normalized later if needed.
+- `providerSnapshot` stores the latest normalized provider list for the configured watch region.
+- `metadataJson` stores the broader normalized title payload, including provider status and detail-only fields.
+- `lastSyncedAt` is used to reuse recent provider availability for roughly 12 hours and full detail payloads for roughly 24 hours in MVP.
+- Provider availability remains denormalized in MVP so the service layer can evolve without new join tables.
+- Member removal preserves the account in MVP by moving the removed user into a new solo household instead of deleting the user.
+- Ownership transfer does not require schema changes in MVP+; it is modeled by updating `User.householdRole` for the current owner and promoted member.
+- Protected request helpers re-read the current user from the database so governance changes are reflected immediately even with JWT sessions.
+- Rewatch tracking, group watch-session editing, and duplicate session history are deferred beyond MVP.

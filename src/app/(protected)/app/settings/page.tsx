@@ -1,9 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProviderPreferencesForm } from "@/components/settings/provider-preferences-form";
 import { getCurrentUserContext } from "@/lib/auth";
+import { getProviderOptions } from "@/lib/services/catalog";
 
 export default async function SettingsPage() {
   const user = await getCurrentUserContext();
+  const providerOptions = await getProviderOptions("all");
+  const selectedProviders = [...new Set([...user.preferredProviders, ...providerOptions])].sort(
+    (left, right) => left.localeCompare(right),
+  );
 
   return (
     <div className="space-y-6">
@@ -17,8 +22,10 @@ export default async function SettingsPage() {
         </CardContent>
       </Card>
 
-      <ProviderPreferencesForm selectedProviders={user.preferredProviders} />
+      <ProviderPreferencesForm
+        providerOptions={selectedProviders}
+        selectedProviders={user.preferredProviders}
+      />
     </div>
   );
 }
-

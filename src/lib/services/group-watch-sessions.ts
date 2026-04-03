@@ -1,0 +1,115 @@
+import { prisma } from "@/lib/prisma";
+import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
+import { toTmdbKey, upsertTitleCache } from "@/lib/services/title-cache";
+import type { GroupWatchState, TitleDetails, TitleSummary } from "@/lib/types";
+
+export function buildParticipantKey(userIds: string[]) {
+  return [...new Set(userIds.filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right))
+    .join("|");
+}
+
+export async function createGroupWatchSession(args: {
+  userId: string;
+  householdId: string;
+  title: TitleSummary | TitleDetails;
+}) {
+  const bootstrap = await getRecommendationContextBootstrap({
+    userId: args.userId,
+    householdId: args.householdId,
+  });
+
+  if (!bootstrap.context.isGroupMode) {
+    throw new Error("Switch to a group context before marking a title watched by the group.");
+  }
+
+  const cachedTitle = await upsertTitleCache(args.title);
+  const participantKey = buildParticipantKey(bootstrap.context.selectedUserIds);
+
+  return prisma.groupWatchSession.upsert({
+    where: {
+      householdId_titleCacheId_participantKey: {
+        householdId: args.householdId,
+        titleCacheId: cachedTitle.id,
+        participantKey,
+      },
+    },
+    update: {
+      savedGroupId: bootstrap.context.savedGroupId,
+      participantUserIds: bootstrap.context.selectedUserIds,
+    },
+    create: {
+      householdId: args.householdId,
+      titleCacheId: cachedTitle.id,
+      createdById: args.userId,
+      savedGroupId: bootstrap.context.savedGroupId,
+      participantKey,
+      participantUserIds: bootstrap.context.selectedUserIds,
+    },
+  });
+}
+
+export async function getCurrentContextGroupWatchState(args: {
+  userId: string;
+  householdId: string;
+  titleCacheId: string;
+}): Promise<GroupWatchState> {
+  const bootstrap = await getRecommendationContextBootstrap({
+    userId: args.userId,
+    householdId: args.householdId,
+  });
+
+  if (!bootstrap.context.isGroupMode) {
+    return {
+      isWatchedByCurrentGroup: false,
+      watchedAt: null,
+    };
+  }
+
+  const watchSession = await prisma.groupWatchSession.findUnique({
+    where: {
+      householdId_titleCacheId_participantKey: {
+        householdId: args.householdId,
+        titleCacheId: args.titleCacheId,
+        participantKey: buildParticipantKey(bootstrap.context.selectedUserIds),
+      },
+    },
+    select: {
+      watchedAt: true,
+    },
+  });
+
+  return {
+    isWatchedByCurrentGroup: Boolean(watchSession),
+    watchedAt: watchSession?.watchedAt.toISOString() ?? null,
+  };
+}
+
+export async function getGroupWatchedTmdbKeys(args: {
+  householdId: string;
+  userIds: string[];
+}) {
+  const watchSessions = await prisma.groupWatchSession.findMany({
+    where: {
+      householdId: args.householdId,
+      participantKey: buildParticipantKey(args.userIds),
+    },
+    select: {
+      title: {
+        select: {
+          tmdbId: true,
+          mediaType: true,
+        },
+      },
+    },
+  });
+
+  return new Set(
+    watchSessions.map((watchSession) =>
+      toTmdbKey(
+        watchSession.title.tmdbId,
+        watchSession.title.mediaType === "MOVIE" ? "movie" : "tv",
+      ),
+    ),
+  );
+}

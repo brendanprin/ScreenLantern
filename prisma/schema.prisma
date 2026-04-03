@@ -31,12 +31,20 @@ enum MediaType {
   TV
 }
 
+enum HouseholdRole {
+  OWNER
+  MEMBER
+}
+
 model Household {
   id                 String              @id @default(cuid())
   name               String
   users              User[]
   groups             HouseholdGroup[]
+  invites            HouseholdInvite[]
+  recommendationContexts UserRecommendationContext[]
   recommendationRuns RecommendationRun[]
+  groupWatchSessions GroupWatchSession[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -47,6 +55,7 @@ model User {
   email              String                  @unique
   passwordHash       String
   householdId        String
+  householdRole      HouseholdRole           @default(MEMBER)
   preferredProviders String[]                @default([])
   defaultMediaType   MediaType?
   createdAt          DateTime                @default(now())
@@ -54,8 +63,12 @@ model User {
   household          Household               @relation(fields: [householdId], references: [id], onDelete: Cascade)
   groupMemberships   HouseholdGroupMember[]
   createdGroups      HouseholdGroup[]        @relation("GroupCreator")
+  createdInvites     HouseholdInvite[]       @relation("CreatedHouseholdInvites")
+  redeemedInvites    HouseholdInvite[]       @relation("RedeemedHouseholdInvites")
   interactions       UserTitleInteraction[]
+  recommendationContext UserRecommendationContext?
   requestedRuns      RecommendationRun[]     @relation("RunRequester")
+  createdGroupWatchSessions GroupWatchSession[] @relation("CreatedGroupWatchSessions")
 }
 
 model HouseholdGroup {
@@ -68,6 +81,8 @@ model HouseholdGroup {
   household   Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
   createdBy   User                   @relation("GroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
   members     HouseholdGroupMember[]
+  recommendationContexts UserRecommendationContext[] @relation("SavedRecommendationContextGroup")
+  groupWatchSessions GroupWatchSession[] @relation("SavedGroupWatchSessions")
 
   @@unique([householdId, name])
 }
@@ -79,6 +94,25 @@ model HouseholdGroupMember {
   user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([groupId, userId])
+}
+
+model HouseholdInvite {
+  id           String        @id @default(cuid())
+  householdId  String
+  createdById  String
+  redeemedById String?
+  code         String        @unique
+  role         HouseholdRole @default(MEMBER)
+  expiresAt    DateTime
+  redeemedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  household    Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  createdBy    User          @relation("CreatedHouseholdInvites", fields: [createdById], references: [id], onDelete: Cascade)
+  redeemedBy   User?         @relation("RedeemedHouseholdInvites", fields: [redeemedById], references: [id], onDelete: SetNull)
+
+  @@index([householdId, createdAt])
 }
 
 model TitleCache {
@@ -98,6 +132,7 @@ model TitleCache {
   metadataJson       Json?
   lastSyncedAt       DateTime               @default(now())
   interactions       UserTitleInteraction[]
+  groupWatchSessions GroupWatchSession[]
 
   @@unique([tmdbId, mediaType])
 }
@@ -134,3 +169,37 @@ model RecommendationRun {
   @@index([householdId, mode, createdAt])
 }
 
+model UserRecommendationContext {
+  id              String             @id @default(cuid())
+  userId          String             @unique
+  householdId     String
+  mode            RecommendationMode @default(SOLO)
+  selectedUserIds String[]           @default([])
+  savedGroupId    String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household       Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  savedGroup      HouseholdGroup?    @relation("SavedRecommendationContextGroup", fields: [savedGroupId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, updatedAt])
+}
+
+model GroupWatchSession {
+  id                 String         @id @default(cuid())
+  householdId        String
+  titleCacheId       String
+  createdById        String
+  savedGroupId       String?
+  participantKey     String
+  participantUserIds String[]       @default([])
+  watchedAt          DateTime       @default(now())
+  createdAt          DateTime       @default(now())
+  household          Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  title              TitleCache     @relation(fields: [titleCacheId], references: [id], onDelete: Cascade)
+  createdBy          User           @relation("CreatedGroupWatchSessions", fields: [createdById], references: [id], onDelete: Cascade)
+  savedGroup         HouseholdGroup? @relation("SavedGroupWatchSessions", fields: [savedGroupId], references: [id], onDelete: SetNull)
+
+  @@unique([householdId, titleCacheId, participantKey])
+  @@index([householdId, watchedAt])
+}

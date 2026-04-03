@@ -6,7 +6,10 @@ import { TitlePoster } from "@/components/title-poster";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext } from "@/lib/auth";
+import { env } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
 import { getTitleDetails } from "@/lib/services/catalog";
+import { getCurrentContextGroupWatchState } from "@/lib/services/group-watch-sessions";
 import { getInteractionMap } from "@/lib/services/interactions";
 import { upsertTitleCache } from "@/lib/services/title-cache";
 import { formatReleaseYear, formatRuntime } from "@/lib/utils";
@@ -18,22 +21,63 @@ interface TitleDetailPageProps {
 export default async function TitleDetailPage({ params }: TitleDetailPageProps) {
   const { mediaType, tmdbId } = await params;
   const user = await getCurrentUserContext();
-  const details = await getTitleDetails(Number(tmdbId), mediaType);
+  const detailResult = await getTitleDetails(Number(tmdbId), mediaType);
 
-  if (!details) {
+  if (detailResult.notFound) {
     notFound();
   }
 
-  await upsertTitleCache(details);
+  if (!detailResult.data) {
+    return (
+      <div className="space-y-6">
+        <Card className="bg-white/80">
+          <CardHeader>
+            <CardTitle>Title details unavailable</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {detailResult.notice ??
+              "ScreenLantern could not load this title from TMDb right now. Please try again shortly."}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const details = detailResult.data;
+
+  const cachedTitle =
+    detailResult.source === "cache"
+      ? await prisma.titleCache.findUniqueOrThrow({
+          where: {
+            tmdbId_mediaType: {
+              tmdbId: details.tmdbId,
+              mediaType: details.mediaType === "movie" ? "MOVIE" : "TV",
+            },
+          },
+        })
+      : await upsertTitleCache(details);
 
   const interactionMap = await getInteractionMap(user.userId, [
     { tmdbId: details.tmdbId, mediaType: details.mediaType },
   ]);
   const activeTypes =
     interactionMap.get(`${details.mediaType}:${details.tmdbId}`) ?? [];
+  const activeGroupWatch = await getCurrentContextGroupWatchState({
+    userId: user.userId,
+    householdId: user.householdId,
+    titleCacheId: cachedTitle.id,
+  });
 
   return (
     <div className="space-y-6">
+      {detailResult.notice ? (
+        <Card className="border-amber-200 bg-amber-50/80">
+          <CardContent className="p-4 text-sm text-amber-900">
+            {detailResult.notice}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="overflow-hidden bg-white/85">
         <CardContent className="p-6">
           <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -62,7 +106,12 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
                 ))}
               </div>
 
-              <InteractionButtons title={details} activeTypes={activeTypes as InteractionType[]} />
+              <InteractionButtons
+                title={details}
+                activeTypes={activeTypes as InteractionType[]}
+                activeGroupWatch={activeGroupWatch}
+                showGroupWatchAction
+              />
             </div>
           </div>
         </CardContent>
@@ -101,14 +150,31 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
               details.providers.map((provider) => (
                 <div
                   key={`${provider.name}-${provider.type ?? ""}`}
-                  className="rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm"
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm"
                 >
-                  {provider.name}
+                  <span>{provider.name}</span>
+                  {provider.type ? (
+                    <span className="text-muted-foreground">
+                      {provider.type === "flatrate"
+                        ? "Included"
+                        : provider.type === "free"
+                          ? "Free"
+                          : provider.type === "ads"
+                            ? "With ads"
+                            : provider.type === "rent"
+                              ? "Rent"
+                              : "Buy"}
+                    </span>
+                  ) : null}
                 </div>
               ))
+            ) : details.providerStatus === "unavailable" ? (
+              <p className="text-sm text-muted-foreground">
+                No watch providers were found for {env.tmdbWatchRegion}.
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Provider availability was unavailable for this title.
+                Provider availability is currently unavailable for {env.tmdbWatchRegion}.
               </p>
             )}
           </CardContent>
@@ -138,4 +204,3 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
     </div>
   );
 }
-

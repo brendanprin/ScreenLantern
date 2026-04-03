@@ -74,14 +74,20 @@
 ### Ticket 2.2: Build registration flow with initial household creation
 
 - Priority: P0
-- Goal: Create a new household automatically when the first user signs up.
+- Goal: Let a new user either create a household or join one via invite.
 - Scope:
   - Registration form
   - Validation
-  - Transactional creation of household and user
+  - Transactional creation of household and owner user
+  - Invite redemption path for joining an existing household
 - Acceptance criteria:
-  - Registering creates both a user and a household
+  - Registering in create mode creates both a user and a household
+  - Registering in join mode adds the user to the invited household
   - Duplicate email is rejected cleanly
+- Test expectations:
+  - Register/create household coverage
+  - Register/join household via valid invite coverage
+  - Invalid invite rejection coverage
 - Dependencies:
   - 2.1
 
@@ -93,9 +99,12 @@
 - Goal: Persist household structure cleanly.
 - Scope:
   - Prisma models for household and membership relations
+  - Owner/member role model
+  - Household invite model
   - Session helpers for active household resolution
 - Acceptance criteria:
   - Users can be resolved as household members
+  - Owner-only actions can be enforced server-side
   - Authorization helpers enforce household boundaries
 - Dependencies:
   - 1.1
@@ -115,6 +124,66 @@
 - Test expectations:
   - Group selection happy-path coverage
 
+### Ticket 3.4: Persist recommendation context server-side
+
+- Priority: P1
+- Goal: Make solo and group recommendation context durable across sessions and devices.
+- Scope:
+  - Per-user persisted recommendation context model
+  - Server-side validation of saved group and ad hoc member selections
+  - Safe fallback when saved context becomes stale
+  - UI support for restoring solo profile and saved-group context
+- Acceptance criteria:
+  - Returning users see the last valid recommendation context restored
+  - Invalid saved contexts fall back safely to solo mode
+  - Context changes are server-validated and household-scoped
+- Test expectations:
+  - Persisted solo context coverage
+  - Persisted group context coverage
+  - Invalid context fallback coverage
+
+### Ticket 3.3: Build invite and membership management
+
+- Priority: P0
+- Goal: Make multi-user household setup real for normal product usage.
+- Scope:
+  - Create invite UI and routes
+  - Invite revocation and status display
+  - Household member list with role badges
+  - Safe member removal behavior
+- Acceptance criteria:
+  - Owners can create invites and copy a join link or code
+  - Members cannot create invites
+  - Invalid, expired, or redeemed invites fail gracefully
+  - Member removal does not delete the removed account in MVP
+- Test expectations:
+  - Protected invite creation coverage
+  - Membership listing coverage
+  - Authorization edge-case coverage
+
+### Ticket 3.5: Add owner transfer and governance hardening
+
+- Priority: P1
+- Goal: Make household governance safe enough for real multi-user usage without adding a heavy admin model.
+- Scope:
+  - Owner transfer flow with explicit confirmation
+  - Current-owner surfacing in household UI
+  - Owner/member action affordance cleanup
+  - Authorization hardening for transfer, invite management, and member removal
+- Technical notes:
+  - Keep the role model to one active `OWNER` plus `MEMBER`s
+  - Re-read the current user row from the database on protected requests so role changes apply immediately
+- Acceptance criteria:
+  - The current owner can transfer ownership to another member in the same household
+  - Prior owners lose owner-only permissions immediately after transfer
+  - The new owner can manage invites created before the transfer
+  - Member-removal rules remain safe and consistent after transfer
+- Test expectations:
+  - Successful owner-transfer coverage
+  - Invalid transfer coverage
+  - Member transfer-attempt protection
+  - Post-transfer invite-management and permission-regression coverage
+
 ## Epic 4: TMDb Integration, Catalog Search, and Browse
 
 ### Ticket 4.1: Build TMDb service client and normalization layer
@@ -126,9 +195,11 @@
   - Discover endpoint integration
   - Genre/provider lookup helpers
   - Mapping to internal title DTOs
+  - Honest movie vs TV normalization rules
 - Acceptance criteria:
   - Search and discover services return normalized results
   - TMDb-specific response details stay out of page components
+  - Movie and TV discover requests use the correct TMDb parameters
 - Dependencies:
   - 1.1
 
@@ -157,6 +228,24 @@
 - Acceptance criteria:
   - User can browse without entering a text search
   - Filters update the result set predictably
+
+### Ticket 4.4: Harden live TMDb mode, provider caching, and upstream failure handling
+
+- Priority: P1
+- Goal: Make the live TMDb integration correct, efficient, and resilient enough for normal usage.
+- Scope:
+  - Cache genre and provider catalogs with simple TTL rules
+  - Reuse recent per-title provider snapshots from `TitleCache`
+  - Distinguish provider `available`, `unavailable`, and `unknown` states
+  - Return graceful notices for rate limits, network failures, and malformed responses
+- Acceptance criteria:
+  - Repeated provider catalog fetches are reduced by caching
+  - Missing provider data does not crash browse, search, or detail routes
+  - Live-mode movie and TV filters behave correctly for year and newest sorting
+- Test expectations:
+  - Unit coverage for discover param mapping
+  - Unit coverage for provider normalization and cache reuse
+  - Unit coverage for API failure handling and mock-mode compatibility
 
 ## Epic 5: Title Detail Pages and Provider Availability
 
@@ -220,6 +309,24 @@
   - Watchlist add/remove flow test
   - Like/dislike/hide interaction flow test
 
+### Ticket 6.3: Model group watch sessions separately from personal watched history
+
+- Priority: P1
+- Goal: Capture shared watching without overwriting individual taste data.
+- Scope:
+  - Group watch-session model
+  - Distinct watched-by-me vs watched-by-current-group actions
+  - Server-side authorization for group watch creation
+  - Minimal recommendation groundwork for prior group watches
+- Acceptance criteria:
+  - Group watch events record exact participants and time
+  - Personal watched history is not automatically written for every participant
+  - Title detail clearly distinguishes personal watched from current-group watched
+- Test expectations:
+  - Group watch happy-path coverage
+  - Solo watched vs group watched distinction coverage
+  - Authorization coverage for group watch creation
+
 ## Epic 7: Solo Recommendation Engine
 
 ### Ticket 7.1: Create user taste profile service
@@ -251,6 +358,53 @@
   - Results are stable for the same input state
 - Test expectations:
   - Unit tests for scoring logic
+
+### Ticket 7.3: Surface recommendation explanations and transparency UI
+
+- Priority: P1
+- Goal: Make recommendations easier to trust without exposing raw scoring internals.
+- Scope:
+  - Structured explanation contract on recommendation results
+  - Concise solo and group explanation copy
+  - Primary explanation on recommendation cards
+  - Lightweight “Why this?” disclosure for extra detail
+- Technical notes:
+  - Keep explanations deterministic and close to recommendation scoring
+  - Reuse structured categories for future AI and debugging surfaces
+- Acceptance criteria:
+  - Each surfaced recommendation includes 1 to 3 human-readable reasons
+  - Solo explanations reflect personal taste and provider/runtime signals
+  - Group explanations reflect safe overlap and prior exact-group watch state honestly
+  - Home feed keeps active context obvious while showing explanations
+- Test expectations:
+  - Unit coverage for explanation generation and fallback behavior
+  - Smoke coverage for explanation rendering in solo and group contexts
+
+### Ticket 7.4: Add watchlist resurfacing and provider-aware Home lanes
+
+- Priority: P1
+- Goal: Make saved titles useful again between search sessions by resurfacing practical watchlist picks.
+- Scope:
+  - `Available now on your services` lane on Home
+  - `Back on your radar` lane on Home
+  - Watchlist-aware explanation copy that reuses the recommendation explanation contract
+  - On-demand provider freshness checks for watchlist titles using existing cache infrastructure
+- Technical notes:
+  - Solo mode uses the active profile's watchlist
+  - Group mode uses the union of the selected members' watchlists
+  - Exact current-group watch history suppresses stale shared rewatches
+  - Unknown provider data must never be treated as a positive “available now” signal
+- Acceptance criteria:
+  - Home can surface watchlist titles that are practical to start on the selected services
+  - Home can resurface saved titles that still fit the current solo or group context even when they are not currently on selected services
+  - Group resurfacing does not create or imply a shared household watchlist
+  - Stale provider data refreshes on demand for resurfaced watchlist titles without background jobs
+- Test expectations:
+  - Solo watchlist resurfacing coverage
+  - Group watchlist resurfacing coverage
+  - Unknown-provider fallback coverage
+  - Exact-group-watch suppression coverage
+  - Home-lane explanation rendering coverage
 
 ## Epic 8: Combined Recommendation Engine
 
@@ -303,9 +457,11 @@
   - Household page
   - Member list
   - Saved group list
+  - Invite management list
 - Acceptance criteria:
   - Household members are visible
   - Saved groups can be reviewed and created
+  - Invite status is visible
 
 ## Epic 10: Testing, Docs, Polish, and MVP Hardening
 
@@ -315,7 +471,7 @@
 - Goal: Make the MVP credible to iterate on safely.
 - Scope:
   - Playwright smoke tests
-  - Vitest unit tests for recommendation and validation utilities
+  - Vitest unit tests for recommendation, catalog normalization, and validation utilities
 - Acceptance criteria:
   - Core happy paths are covered
   - Test scripts run locally

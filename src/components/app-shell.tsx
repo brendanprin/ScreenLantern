@@ -7,15 +7,23 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { APP_NAME, NAV_ITEMS } from "@/lib/constants";
 import { logoutAction } from "@/lib/auth";
+import type {
+  HouseholdMemberOption,
+  PersistedRecommendationContext,
+  SavedGroupOption,
+} from "@/lib/types";
 
 interface AppShellProps {
   currentUser: {
     id: string;
     name: string;
     householdId: string;
+    householdName: string;
+    householdRole: "OWNER" | "MEMBER";
   };
-  householdMembers: Array<{ id: string; name: string }>;
-  savedGroups: Array<{ id: string; name: string; userIds: string[] }>;
+  householdMembers: HouseholdMemberOption[];
+  savedGroups: SavedGroupOption[];
+  initialContext: PersistedRecommendationContext;
   children: React.ReactNode;
 }
 
@@ -23,14 +31,15 @@ export function AppShell({
   currentUser,
   householdMembers,
   savedGroups,
+  initialContext,
   children,
 }: AppShellProps) {
   return (
     <ActiveContextProvider
-      householdId={currentUser.householdId}
       currentUser={{ id: currentUser.id, name: currentUser.name }}
       householdMembers={householdMembers}
       savedGroups={savedGroups}
+      initialContext={initialContext}
     >
       <div className="container py-6">
         <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -41,6 +50,9 @@ export function AppShell({
               </Link>
               <p className="mt-2 text-sm text-muted-foreground">
                 Logged in as {currentUser.name}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {currentUser.householdName} · {currentUser.householdRole}
               </p>
             </div>
             <nav className="flex flex-col gap-2">
@@ -63,4 +75,3 @@ export function AppShell({
     </ActiveContextProvider>
   );
 }
-

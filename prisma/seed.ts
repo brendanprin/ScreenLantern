@@ -2,6 +2,7 @@ process.loadEnvFile?.(".env");
 
 import { hash } from "bcryptjs";
 import {
+  HouseholdRole,
   InteractionType,
   MediaType,
   Prisma,
@@ -16,7 +17,12 @@ const DEMO_USERS = [
   {
     name: "Brendan",
     email: "brendan@screenlantern.demo",
+    householdRole: HouseholdRole.OWNER,
     preferredProviders: ["Max", "Apple TV Plus"],
+    watchlist: [
+      ["movie", 16],
+      ["tv", 108],
+    ],
     likes: [
       ["movie", 11],
       ["movie", 12],
@@ -32,7 +38,12 @@ const DEMO_USERS = [
   {
     name: "Katie",
     email: "katie@screenlantern.demo",
+    householdRole: HouseholdRole.MEMBER,
     preferredProviders: ["Hulu", "Prime Video"],
+    watchlist: [
+      ["movie", 12],
+      ["movie", 17],
+    ],
     likes: [
       ["movie", 13],
       ["movie", 14],
@@ -45,7 +56,12 @@ const DEMO_USERS = [
   {
     name: "Palmer",
     email: "palmer@screenlantern.demo",
+    householdRole: HouseholdRole.MEMBER,
     preferredProviders: ["Netflix", "Disney Plus"],
+    watchlist: [
+      ["movie", 18],
+      ["tv", 104],
+    ],
     likes: [
       ["movie", 18],
       ["movie", 16],
@@ -58,7 +74,12 @@ const DEMO_USERS = [
   {
     name: "Geoff",
     email: "geoff@screenlantern.demo",
+    householdRole: HouseholdRole.MEMBER,
     preferredProviders: ["Apple TV Plus", "Hulu"],
+    watchlist: [
+      ["tv", 107],
+      ["movie", 15],
+    ],
     likes: [
       ["movie", 14],
       ["movie", 13],
@@ -169,6 +190,7 @@ async function main() {
           name: user.name,
           passwordHash,
           householdId: household.id,
+          householdRole: user.householdRole,
           preferredProviders: [...user.preferredProviders],
         },
         create: {
@@ -176,6 +198,7 @@ async function main() {
           name: user.name,
           passwordHash,
           householdId: household.id,
+          householdRole: user.householdRole,
           preferredProviders: [...user.preferredProviders],
         },
       }),
@@ -185,6 +208,22 @@ async function main() {
   const userIdByName = new Map(createdUsers.map((user) => [user.name, user.id]));
 
   await prisma.householdGroup.deleteMany({
+    where: { householdId: household.id },
+  });
+
+  await prisma.householdInvite.deleteMany({
+    where: { householdId: household.id },
+  });
+
+  await prisma.userRecommendationContext.deleteMany({
+    where: { householdId: household.id },
+  });
+
+  await prisma.groupWatchSession.deleteMany({
+    where: { householdId: household.id },
+  });
+
+  await prisma.recommendationRun.deleteMany({
     where: { householdId: household.id },
   });
 
@@ -201,6 +240,16 @@ async function main() {
           ],
         },
       },
+    },
+  });
+
+  await prisma.householdInvite.create({
+    data: {
+      householdId: household.id,
+      createdById: userIdByName.get("Brendan")!,
+      code: "LANTERNJOIN",
+      role: HouseholdRole.MEMBER,
+      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
     },
   });
 
@@ -247,6 +296,15 @@ async function main() {
 
   for (const user of DEMO_USERS) {
     const userId = userIdByName.get(user.name)!;
+
+    for (const [mediaType, tmdbId] of user.watchlist) {
+      await applyInteraction({
+        userId,
+        mediaType,
+        tmdbId,
+        interactionType: InteractionType.WATCHLIST,
+      });
+    }
 
     for (const [mediaType, tmdbId] of user.likes) {
       await applyInteraction({

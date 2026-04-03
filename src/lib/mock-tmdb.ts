@@ -432,7 +432,7 @@ export function discoverMockTitles(
       return (right.voteAverage ?? 0) - (left.voteAverage ?? 0);
     }
 
-    if (input.sortBy === "primary_release_date.desc") {
+    if (input.sortBy === "newest.desc") {
       return (
         new Date(right.releaseDate ?? "1970-01-01").getTime() -
         new Date(left.releaseDate ?? "1970-01-01").getTime()
@@ -466,4 +466,3 @@ export function getMockRecommendationCandidates(
 
   return candidates;
 }
-

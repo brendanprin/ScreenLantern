@@ -20,7 +20,6 @@ export const discoverParamsSchema = z.object({
     .default(""),
   provider: z.string().optional().default(""),
   sortBy: z
-    .enum(["popularity.desc", "vote_average.desc", "primary_release_date.desc"])
+    .enum(["popularity.desc", "vote_average.desc", "newest.desc"])
     .default("popularity.desc"),
 });
-
