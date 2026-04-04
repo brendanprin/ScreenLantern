@@ -344,7 +344,7 @@
 - Acceptance criteria:
   - Library clearly reflects the active solo or group context
   - Users can quickly see what is available now on selected services from their Library
-  - Group Library views can surface good shared candidates without implying a shared household watchlist
+  - Group Library views can surface good shared candidates without implying shared taste writes for every participant
   - Hidden, disliked, and already watched titles are still available for cleanup without dominating fresh decision sections
 - Test expectations:
   - Solo Library intelligence rendering coverage
@@ -352,6 +352,32 @@
   - Provider-aware badge and filter coverage
   - Exact-group-watch suppression coverage
   - Quick triage action coverage
+
+### Ticket 6.5: Add shared watchlist semantics and collaboration signals
+
+- Priority: P1
+- Goal: Support collaborative planning without collapsing personal taste, shared planning, and shared watch history into one model.
+- Scope:
+  - Distinct persisted shared watchlist model for group and household saves
+  - Intentional save flows such as `Save for me`, `Save for current group`, and `Save for household`
+  - Detail-page and Library surfacing for personal vs shared saved state
+  - Recommendation and reminder explanation reuse for shared saves
+- Technical notes:
+  - Keep personal `WATCHLIST` interactions intact
+  - Group-shared saves should resolve against the exact active participant set on the server
+  - Household-shared saves must remain household-scoped and authorization-safe
+  - Shared saves should feed group resurfacing and reminders without becoming personal likes, dislikes, or watched history
+- Acceptance criteria:
+  - Users can save a title for themself, the active group, or the household with clear labels
+  - Library can surface `Shared for this group` and `Shared for household` views separately from personal watchlists
+  - Detail pages show whether a title is on the personal watchlist, saved for the group, or saved for the household
+  - Group resurfacing and reminders can explain when a title was saved for the active group or for the household
+- Test expectations:
+  - Personal save vs shared save distinction coverage
+  - Household-safe shared-save authorization coverage
+  - Shared watchlist Library rendering coverage
+  - Detail-page shared-save state coverage
+  - Shared-save recommendation or reminder explanation coverage
 
 ## Epic 7: Solo Recommendation Engine
 
@@ -423,7 +449,7 @@
 - Acceptance criteria:
   - Home can surface watchlist titles that are practical to start on the selected services
   - Home can resurface saved titles that still fit the current solo or group context even when they are not currently on selected services
-  - Group resurfacing does not create or imply a shared household watchlist
+  - Group resurfacing can incorporate explicit shared-planning signals without rewriting personal taste state
   - Stale provider data refreshes on demand for resurfaced watchlist titles without background jobs
 - Test expectations:
   - Solo watchlist resurfacing coverage
@@ -456,6 +482,34 @@
   - Reminder read and dismiss coverage
   - Protected reminder API coverage
 
+### Ticket 7.6: Add reminder preferences and deterministic reminder tuning
+
+- Priority: P1
+- Goal: Make the reminder inbox feel personal and controllable instead of one-size-fits-all.
+- Scope:
+  - Persisted user-owned reminder preferences
+  - Category toggles for available-now, watchlist resurfacing, and group-watch candidates
+  - Solo and group reminder toggles
+  - Reminder pace selector such as light, balanced, and proactive
+  - Deterministic dismissed-reminder reappearance policy
+  - Settings UI for reminder tuning
+- Technical notes:
+  - Reuse the existing reminder generation pipeline instead of building a separate rules engine
+  - Keep `available_now` as the highest-value signal unless disabled
+  - Use a simple fixed cooldown for dismissed reminder reappearance in MVP
+  - Keep preferences tied to the signed-in user, not the household as shared policy
+- Acceptance criteria:
+  - Reminder generation respects enabled categories and solo/group toggles
+  - Reminder pace materially changes softer resurfacing volume
+  - Dismissed reminders stay gone unless reappearance is enabled and the cooldown has elapsed
+  - Settings changes persist and affect the reminders inbox without requiring a new architecture layer
+- Test expectations:
+  - Category-suppression coverage
+  - Solo/group toggle coverage
+  - Aggressiveness-level coverage
+  - Dismissed-reminder cooldown coverage
+  - Settings save/load smoke coverage
+
 ## Epic 8: Combined Recommendation Engine
 
 ### Ticket 8.1: Create group taste profile service
@@ -486,6 +540,31 @@
 - Test expectations:
   - Group recommendation happy-path test
 
+### Ticket 8.3: Add cross-user fit summary and “who this is best for” transparency
+
+- Priority: P1
+- Goal: Help a household understand who a title is best for, where likely group conflict exists, and who already signaled interest without exposing raw scoring math.
+- Scope:
+  - Title-detail fit summary for the active solo or group context
+  - Household signal rows showing watched, personal saved, shared saved, and likely-fit or likely-conflict states
+  - Lightweight fit labels on recommendation or Library cards where they stay unobtrusive
+  - Reuse of existing recommendation, shared-watchlist, reminder, and group-watch-session signals
+- Technical notes:
+  - Keep the model derived; do not add a separate persisted comparison table
+  - Reuse per-member solo taste heuristics to classify lightweight fit states
+  - Group summaries should distinguish `good shared fit`, `safe compromise`, `mixed fit`, and `watched together`
+  - Keep all comparison data household-scoped and server-validated
+- Acceptance criteria:
+  - Title detail can answer who a title is best for in the active context
+  - Active-group detail pages surface mixed-fit or conflict states honestly when applicable
+  - Detail pages show who watched or saved a title without collapsing personal and shared planning intent
+  - Card-level fit labels stay lightweight and do not clutter the main recommendation surfaces
+- Test expectations:
+  - Solo fit-summary rendering coverage
+  - Group fit-summary rendering coverage
+  - Mixed-fit and conflict-state coverage
+  - Shared-save signal reuse coverage
+
 ## Epic 9: Settings, Provider Preferences, and Household Management
 
 ### Ticket 9.1: Build provider preference settings
@@ -512,6 +591,30 @@
   - Household members are visible
   - Saved groups can be reviewed and created
   - Invite status is visible
+
+### Ticket 9.3: Add household activity/history feed
+
+- Priority: P1
+- Goal: Make collaborative planning and governance changes visible without exposing private solo-only taste actions.
+- Scope:
+  - Persisted household activity model
+  - Dedicated Activity page in the protected shell
+  - Event creation for shared-watchlist saves/removals, watched-together events, invite changes, ownership transfer, and member removal
+  - Title-linked activity cards with readable context labels
+- Technical notes:
+  - Reuse existing shared-watchlist, group-watch, invite, and governance flows instead of inventing a second logging system
+  - Keep activity household-scoped and server-filtered
+  - Exclude private watchlist, like, dislike, hide, and solo watched events from the feed
+- Acceptance criteria:
+  - Household members can review recent collaborative activity in recency order
+  - Title-linked events can link back to detail pages
+  - Shared and governance events are visible without leaking private personal state
+  - Feed reads and writes remain household-safe
+- Test expectations:
+  - Shared-save activity creation coverage
+  - Group-watch activity creation coverage
+  - Invite and ownership-transfer activity coverage
+  - Household-safe feed rendering coverage
 
 ## Epic 10: Testing, Docs, Polish, and MVP Hardening
 

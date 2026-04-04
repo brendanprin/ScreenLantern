@@ -5,6 +5,7 @@
 - Keep individual taste and history separate per user
 - Support multiple members inside one household
 - Allow saved recommendation groups
+- Model shared planning intent separately from personal taste and shared watch history
 - Persist enough state to power explainable solo and combined recommendations
 
 ## Core Entities
@@ -62,6 +63,14 @@ In the current MVP implementation, membership is represented directly on the `Us
 - Supports actions such as watchlist, watched, like, dislike, and hide
 - Includes timestamps and optional context metadata
 
+### SharedWatchlistEntry
+
+- Persisted shared planning row for one title, one saver, and one shared context
+- Distinct from `UserTitleInteraction.WATCHLIST`
+- Supports `GROUP` and `HOUSEHOLD` scope
+- Records who saved the title and which shared context it belongs to
+- Allows group resurfacing, reminders, and Library sections to reuse collaborative planning intent without mutating personal taste state
+
 ### RecommendationRun
 
 - Stores a recommendation request context and result summary
@@ -80,6 +89,29 @@ In the current MVP implementation, membership is represented directly on the `Us
 - Stores lightweight reminder state such as active, read, and dismissed
 - Uses reminder categories for available-now, watchlist resurfacing, and group-watch candidates
 - Carries explanation text for reuse in the reminder inbox UI
+
+### UserReminderPreference
+
+- One persisted reminder-tuning row per signed-in user
+- Keeps reminder controls user-owned instead of shared across the household
+- Stores category toggles, solo/group toggles, reminder pace, and dismissed-reminder reappearance policy
+
+### HouseholdActivity
+
+- Persisted collaborative-history row scoped to one household
+- Captures who did something shared, what happened, when it happened, and optional title or context references
+- Stores concise summary/detail copy for the Activity page without requiring a second rendering model
+- Intentionally excludes private solo-only actions that were never meant to be shared
+
+### Derived Title Fit Summary
+
+- No dedicated table in MVP
+- Computed on read from:
+  - `UserTitleInteraction`
+  - `SharedWatchlistEntry`
+  - `GroupWatchSession`
+  - per-user taste profiles derived from existing interactions and preferences
+- Produces household-safe, non-technical fit states for detail-page transparency and lightweight card labels
 
 ## Recommended Relational Shape
 
@@ -187,6 +219,26 @@ Source contexts:
 - `GROUP`
 - `MANUAL`
 
+### Shared Watchlist Entries
+
+- `SharedWatchlistEntry`
+  - `id`
+  - `householdId`
+  - `titleCacheId`
+  - `scope`
+  - `contextKey`
+  - `contextLabel`
+  - `selectedUserIds`
+  - `savedGroupId`
+  - `savedById`
+  - `createdAt`
+  - `updatedAt`
+
+Shared watchlist scopes:
+
+- `GROUP`
+- `HOUSEHOLD`
+
 ### Recommendation Runs
 
 - `RecommendationRun`
@@ -246,6 +298,53 @@ Reminder categories:
 - `WATCHLIST_RESURFACE`
 - `GROUP_WATCH_CANDIDATE`
 
+### Reminder Preferences
+
+- `UserReminderPreference`
+  - `id`
+  - `userId`
+  - `householdId`
+  - `enableAvailableNow`
+  - `enableWatchlistResurface`
+  - `enableGroupWatchCandidate`
+  - `enableSoloReminders`
+  - `enableGroupReminders`
+  - `aggressiveness`
+  - `allowDismissedReappear`
+  - `createdAt`
+  - `updatedAt`
+
+Reminder aggressiveness values:
+
+- `LIGHT`
+- `BALANCED`
+- `PROACTIVE`
+
+### Household Activity
+
+- `HouseholdActivity`
+  - `id`
+  - `householdId`
+  - `actorUserId` (optional)
+  - `titleCacheId` (optional)
+  - `type`
+  - `contextLabel`
+  - `summary`
+  - `detail`
+  - `metadataJson`
+  - `createdAt`
+
+Household activity types:
+
+- `SHARED_SAVE_ADDED`
+- `SHARED_SAVE_REMOVED`
+- `GROUP_WATCH_RECORDED`
+- `INVITE_CREATED`
+- `INVITE_REVOKED`
+- `INVITE_REDEEMED`
+- `OWNERSHIP_TRANSFERRED`
+- `MEMBER_REMOVED`
+
 ## Modeling Notes
 
 - Separate rows per interaction type make state transitions easy to audit and query.
@@ -254,10 +353,16 @@ Reminder categories:
 - If a saved group becomes invalid or stale, context resolution falls back to the viewer's solo profile and the stored row is normalized.
 - Group watch sessions intentionally do not create personal `WATCHED` interactions for every participant.
 - Personal watched history and shared watch history are related but distinct data sets.
+- Shared watchlist entries are planning intent, not personal taste or watch-history state.
+- Shared watchlist entries are keyed per saver, per context, and per title so multiple household members can independently save the same title into the same shared context.
+- Solo recommendations stay grounded in personal state, while group resurfacing can reuse group-shared and household-shared planning entries.
 - Cached TMDb metadata lets the UI reuse normalized title data without excessive refetching.
 - `providerSnapshot` stores the latest normalized provider list for the configured watch region.
 - `metadataJson` stores the broader normalized title payload, including provider status and detail-only fields.
 - `lastSyncedAt` is used to reuse recent provider availability for roughly 12 hours and full detail payloads for roughly 24 hours in MVP.
+- Reminder preferences are user-owned and household-safe because they are keyed to one signed-in user inside one household.
+- Reminder pace only changes the volume of softer resurfacing reminders; it does not suppress `AVAILABLE_NOW` unless that category is disabled explicitly.
+- Dismissed reminder reappearance is a fixed policy in MVP: if enabled, the same reminder can return after a 14-day cooldown when it still qualifies.
 - Provider availability remains denormalized in MVP so the service layer can evolve without new join tables.
 - Member removal preserves the account in MVP by moving the removed user into a new solo household instead of deleting the user.
 - Ownership transfer does not require schema changes in MVP+; it is modeled by updating `User.householdRole` for the current owner and promoted member.
@@ -265,4 +370,9 @@ Reminder categories:
 - `UserReminder` is keyed by user, context, category, and title so the same title can appear differently in solo and group reminder states without collisions.
 - Reminder rows are generated on demand from resurfacing logic, not from a scheduled notification pipeline.
 - `readAt` and `dismissedAt` live on the reminder row and do not affect watchlist state.
+- Cross-user fit summaries are intentionally derived instead of persisted so household comparison stays explainable and reuses the same solo/group recommendation primitives.
+- Fit summaries can safely answer “who is this best for?” because they only compare members inside the signed-in user's current household.
+- `HouseholdActivity` is intentionally limited to explicitly shared planning, watched-together, invite, and governance events.
+- Personal watchlist saves, likes, dislikes, hides, and solo watched history remain private and do not create `HouseholdActivity` rows.
+- Activity rows are filtered by `householdId` on the server, so collaborative history never crosses household boundaries.
 - Rewatch tracking, group watch-session editing, and duplicate session history are deferred beyond MVP.

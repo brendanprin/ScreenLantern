@@ -5,6 +5,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { TitleCard } from "@/components/title-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useActiveContext } from "@/components/active-context-provider";
+import { deriveCompactFitLabel } from "@/lib/fit-labels";
 import type { RecommendationItem, RecommendationLane } from "@/lib/types";
 
 interface RecommendationResponse {
@@ -115,6 +116,11 @@ export function RecommendationFeed() {
                   recommendationExplanations={item.explanations}
                   recommendationContextLabel={contextLabel}
                   recommendationBadges={item.badges}
+                  fitSummaryLabel={deriveCompactFitLabel({
+                    explanations: item.explanations,
+                    isGroupMode,
+                    contextLabel,
+                  })}
                 />
               ))}
             </div>
@@ -130,6 +136,11 @@ export function RecommendationFeed() {
             recommendationExplanations={item.explanations}
             recommendationContextLabel={contextLabel}
             recommendationBadges={item.badges}
+            fitSummaryLabel={deriveCompactFitLabel({
+              explanations: item.explanations,
+              isGroupMode,
+              contextLabel,
+            })}
           />
         ))}
       </div>

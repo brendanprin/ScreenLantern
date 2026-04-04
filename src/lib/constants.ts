@@ -5,6 +5,7 @@ export const NAV_ITEMS = [
   { href: "/app/search", label: "Search" },
   { href: "/app/browse", label: "Browse" },
   { href: "/app/library", label: "Library" },
+  { href: "/app/activity", label: "Activity" },
   { href: "/app/household", label: "Household" },
   { href: "/app/settings", label: "Settings" },
 ] as const;
@@ -27,4 +28,3 @@ export const INTERACTION_LABELS = {
   DISLIKE: "Disliked",
   HIDE: "Hidden",
 } as const;
-

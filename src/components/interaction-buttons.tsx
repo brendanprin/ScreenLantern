@@ -7,13 +7,20 @@ import { InteractionType, SourceContext } from "@prisma/client";
 
 import { useActiveContext } from "@/components/active-context-provider";
 import { Button } from "@/components/ui/button";
-import type { GroupWatchState, TitleSummary } from "@/lib/types";
+import type {
+  GroupWatchState,
+  SharedWatchlistTitleState,
+  TitleSummary,
+} from "@/lib/types";
 
 interface InteractionButtonsProps {
   title: TitleSummary;
   activeTypes: InteractionType[];
   activeGroupWatch?: GroupWatchState;
+  sharedWatchlistState?: SharedWatchlistTitleState;
   showGroupWatchAction?: boolean;
+  showGroupSaveAction?: boolean;
+  showHouseholdSaveAction?: boolean;
   actingUserId?: string;
   showSoloWatchedAction?: boolean;
   showPreferenceActions?: boolean;
@@ -30,7 +37,10 @@ export function InteractionButtons({
   title,
   activeTypes,
   activeGroupWatch,
+  sharedWatchlistState,
   showGroupWatchAction = false,
+  showGroupSaveAction = false,
+  showHouseholdSaveAction = false,
   actingUserId,
   showSoloWatchedAction = true,
   showPreferenceActions = true,
@@ -39,6 +49,18 @@ export function InteractionButtons({
   const { activeNames, isGroupMode } = useActiveContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function formatList(items: string[]) {
+    if (items.length <= 1) {
+      return items[0] ?? "";
+    }
+
+    if (items.length === 2) {
+      return `${items[0]} and ${items[1]}`;
+    }
+
+    return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+  }
 
   async function handleAction(
     type: InteractionType,
@@ -111,6 +133,42 @@ export function InteractionButtons({
     }
   }
 
+  async function handleSharedSave(scope: "GROUP" | "HOUSEHOLD", active: boolean) {
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/shared-watchlist", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          scope,
+          active,
+          actingUserId,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "Unable to update this shared save.");
+      }
+    } catch (actionError) {
+      setError(
+        actionError instanceof Error
+          ? actionError.message
+          : "Unable to update this shared save.",
+      );
+    } finally {
+      startTransition(() => {
+        setIsSubmitting(false);
+        router.refresh();
+      });
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
@@ -149,10 +207,79 @@ export function InteractionButtons({
         </p>
       ) : null}
 
+      {showGroupSaveAction || showHouseholdSaveAction ? (
+        <div className="space-y-2 rounded-2xl border border-border/70 bg-background/60 p-3">
+          <p className="text-sm font-medium text-foreground">Shared planning</p>
+          <div className="flex flex-wrap gap-2">
+            {showGroupSaveAction && isGroupMode ? (
+              <Button
+                type="button"
+                variant={
+                  sharedWatchlistState?.group?.isSavedByViewer ? "default" : "outline"
+                }
+                size="sm"
+                disabled={isSubmitting}
+                onClick={() =>
+                  handleSharedSave(
+                    "GROUP",
+                    !Boolean(sharedWatchlistState?.group?.isSavedByViewer),
+                  )
+                }
+              >
+                <Plus className="h-4 w-4" />
+                Save for current group
+              </Button>
+            ) : null}
+            {showHouseholdSaveAction ? (
+              <Button
+                type="button"
+                variant={
+                  sharedWatchlistState?.household?.isSavedByViewer
+                    ? "default"
+                    : "outline"
+                }
+                size="sm"
+                disabled={isSubmitting}
+                onClick={() =>
+                  handleSharedSave(
+                    "HOUSEHOLD",
+                    !Boolean(sharedWatchlistState?.household?.isSavedByViewer),
+                  )
+                }
+              >
+                <Plus className="h-4 w-4" />
+                Save for household
+              </Button>
+            ) : null}
+          </div>
+          {sharedWatchlistState?.group?.isSaved ? (
+            <p className="text-sm text-muted-foreground">
+              Saved for {sharedWatchlistState.group.contextLabel}
+              {sharedWatchlistState.group.savedByNames.length > 0
+                ? ` by ${formatList(sharedWatchlistState.group.savedByNames)}.`
+                : "."}
+            </p>
+          ) : null}
+          {sharedWatchlistState?.household?.isSaved ? (
+            <p className="text-sm text-muted-foreground">
+              Saved for the household
+              {sharedWatchlistState.household.savedByNames.length > 0
+                ? ` by ${formatList(sharedWatchlistState.household.savedByNames)}.`
+                : "."}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {showPreferenceActions ? (
         <div className="flex flex-wrap gap-2">
           {ACTIONS.map(({ type, label, icon: Icon }) => {
             const isActive = activeTypes.includes(type);
+            const resolvedLabel =
+              type === InteractionType.WATCHLIST &&
+              (showGroupSaveAction || showHouseholdSaveAction)
+                ? "Save for me"
+                : label;
 
             return (
               <Button
@@ -164,7 +291,7 @@ export function InteractionButtons({
                 onClick={() => handleAction(type)}
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {resolvedLabel}
               </Button>
             );
           })}

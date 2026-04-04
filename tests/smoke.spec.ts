@@ -23,6 +23,22 @@ const ARRIVAL_TITLE = {
   providers: [{ name: "Prime Video" }, { name: "Paramount Plus" }],
 };
 
+const DUNE_TITLE = {
+  tmdbId: 11,
+  mediaType: "movie",
+  title: "Dune",
+  overview:
+    "A gifted young heir must survive a deadly struggle over the galaxy's most valuable resource.",
+  posterPath: null,
+  backdropPath: null,
+  releaseDate: "2021-10-22",
+  runtimeMinutes: 155,
+  genres: ["Science Fiction", "Adventure", "Drama"],
+  voteAverage: 8,
+  popularity: 91,
+  providers: [{ name: "Max" }, { name: "Netflix" }],
+};
+
 async function signInAs(page: Page, email = DEMO_EMAIL) {
   await page.goto("/sign-in");
   await page.getByLabel("Email").fill(email);
@@ -51,7 +67,9 @@ function uniqueEmail(prefix: string) {
 }
 
 test("redirects anonymous users away from protected routes", async ({ page }) => {
-  await page.goto("/app");
+  await page.goto("/sign-in");
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await page.goto("/app", { waitUntil: "commit" }).catch(() => null);
   await expect(page).toHaveURL(/\/sign-in$/);
 });
 
@@ -112,7 +130,7 @@ test("watchlist and taste actions work on a title detail page", async ({ page })
   await signInAs(page);
   await page.goto("/app/title/movie/12");
   const watchlistButton = page.getByRole("button", {
-    name: "Watchlist",
+    name: "Save for me",
     exact: true,
   });
   const likeButton = page.getByRole("button", { name: "Like", exact: true });
@@ -188,10 +206,72 @@ test("recommendation explanations surface for solo and group contexts", async ({
   ).toBeVisible();
 });
 
+test("title detail surfaces solo fit, mixed group fit, and watched-together truth", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use my solo profile" }).click(),
+  ]);
+
+  await page.goto("/app/title/movie/11");
+  const soloFitSummary = page.getByTestId("title-fit-summary");
+  await expect(soloFitSummary).toContainText("Best fit for Brendan");
+  await expect(soloFitSummary).toContainText("Best for Brendan");
+  await expect(page.getByTestId("title-fit-member-brendan")).toContainText(
+    "Already likes it",
+  );
+  await expect(page.getByTestId("title-fit-member-geoff")).toContainText(
+    "Potential conflict",
+  );
+  await expect(page.getByTestId("title-fit-member-geoff")).toContainText("Disliked it");
+
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use this group" }).nth(2).click(),
+  ]);
+
+  await page.goto("/app/title/tv/106");
+  const groupFitSummary = page.getByTestId("title-fit-summary");
+  await expect(groupFitSummary).toContainText("Mixed fit for Brendan + Palmer + Geoff");
+  await expect(page.getByTestId("title-fit-member-brendan")).toContainText(
+    "Potential conflict",
+  );
+
+  await page.getByRole("button", { name: "Save for household" }).click();
+  await expect(groupFitSummary).toContainText("Saved by Brendan for the household.");
+
+  await page.getByRole("button", { name: "Watched by current group" }).click();
+  await expect(groupFitSummary).toContainText(
+    "Brendan + Palmer + Geoff already watched this together",
+  );
+});
+
 test("watchlist resurfacing lanes highlight available-now picks and suppress watched group titles", async ({
   page,
 }) => {
   await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use my solo profile" }).click(),
+  ]);
+  await page.goto("/app");
   const soloAvailableLane = page.getByTestId("recommendation-lane-available_now");
   await expect(soloAvailableLane).toBeVisible();
   await expect(
@@ -290,6 +370,76 @@ test("reminders inbox surfaces solo and group reminders with read and dismiss ac
   );
 });
 
+test("reminder preferences save, load, and tune solo and group reminder noise", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/settings");
+  await page.getByLabel("Available now reminders").click();
+  await page.getByLabel("Watchlist resurfacing reminders").click();
+  await page.getByLabel("Group reminders").click();
+  await page.getByLabel("Dismissed reminders can return after a cooldown").click();
+  await page.getByLabel("Reminder pace").click();
+  await page.getByRole("option", { name: "Light" }).click();
+  await page.getByRole("button", { name: "Save reminder preferences" }).click();
+  await expect(page.getByText("Reminder preferences saved.")).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByLabel("Available now reminders")).toHaveAttribute(
+    "data-state",
+    "unchecked",
+  );
+  await expect(page.getByLabel("Watchlist resurfacing reminders")).toHaveAttribute(
+    "data-state",
+    "unchecked",
+  );
+  await expect(page.getByLabel("Group reminders")).toHaveAttribute(
+    "data-state",
+    "unchecked",
+  );
+  await expect(
+    page.getByLabel("Dismissed reminders can return after a cooldown"),
+  ).toHaveAttribute("data-state", "checked");
+  await expect(page.getByLabel("Reminder pace")).toContainText("Light");
+
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use my solo profile" }).click(),
+  ]);
+  await page.goto("/app/reminders");
+  await expect(
+    page.getByRole("heading", { name: "Reminders for Brendan" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByText("The reminder categories for this view are turned off in Settings.")
+      .first(),
+  ).toBeVisible();
+  await expect(page.locator('[data-testid^="reminder-card-"]')).toHaveCount(0);
+
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
+  ]);
+  await page.goto("/app/reminders");
+  await expect(
+    page.getByRole("heading", { name: "Reminders for Brendan + Palmer" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Group reminders are turned off in Settings.").first(),
+  ).toBeVisible();
+  await expect(page.locator('[data-testid^="reminder-card-"]')).toHaveCount(0);
+});
+
 test("library intelligence surfaces solo sections, provider-aware filters, and quick triage", async ({
   page,
 }) => {
@@ -323,8 +473,85 @@ test("library intelligence surfaces solo sections, provider-aware filters, and q
   await page.goto("/app/library?collection=WATCHLIST&focus=available");
   const collectionCard = page.getByTestId("library-card-collection-movie-17");
   await expect(collectionCard).toBeVisible();
-  await collectionCard.getByRole("button", { name: "Watchlist" }).click();
+  await collectionCard.getByRole("button", { name: "Save for me" }).click();
   await expect(page.getByTestId("library-card-collection-movie-17")).toHaveCount(0);
+});
+
+test("shared watchlist saves stay distinct from personal watchlists and feed group resurfacing", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
+  ]);
+
+  await page.goto("/app/title/movie/11");
+  await expect(
+    page.getByText(
+      "This title is not currently saved in your personal or shared planning lists.",
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Save for current group" }).click();
+  await page.getByRole("button", { name: "Save for household" }).click();
+  await expect(
+    page.getByText("Saved for Brendan + Palmer by Brendan.").first(),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Saved for the household by Brendan.").first(),
+  ).toBeVisible();
+
+  await page.goto("/app/library?collection=shared_group");
+  await expect(page.getByTestId("library-section-collection")).toContainText("Dune");
+  await expect(page.getByTestId("library-section-collection")).toContainText(
+    "Saved for Brendan + Palmer",
+  );
+
+  await page.goto("/app/library?collection=WATCHLIST");
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Dune" }),
+  ).toHaveCount(0);
+
+  await page.goto("/app/library?collection=shared_household");
+  await expect(page.getByTestId("library-section-collection")).toContainText("Dune");
+  await expect(page.getByTestId("library-section-collection")).toContainText(
+    "Saved by Brendan for the household",
+  );
+
+  await signOut(page);
+  await signInAs(page, GEOFF_EMAIL);
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
+  ]);
+
+  await page.goto("/app/title/movie/16");
+  await page.getByRole("button", { name: "Save for current group" }).click();
+  await page.goto("/app/reminders");
+  const madMaxReminder = page.getByTestId("reminder-card-movie-16");
+  await expect(
+    madMaxReminder.getByRole("heading", { name: "Mad Max: Fury Road" }),
+  ).toBeVisible();
+  await expect(
+    madMaxReminder.getByText("Saved for Brendan + Palmer and available now"),
+  ).toBeVisible();
+
+  await page.goto("/app/title/movie/16");
+  await page.getByRole("button", { name: "Watched by current group" }).click();
+  await page.goto("/app/reminders");
+  await expect(page.getByTestId("reminder-card-movie-16")).toHaveCount(0);
 });
 
 test("library intelligence stays group-aware and moves watched-together titles out of fresh sections", async ({
@@ -369,6 +596,16 @@ test("library intelligence stays group-aware and moves watched-together titles o
 
 test("persisted solo profile context restores across refresh", async ({ page }) => {
   await signInAs(page, GEOFF_EMAIL);
+  await page.goto("/app/household");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use my solo profile" }).click(),
+  ]);
+  await page.goto("/app");
   const currentHeading =
     (await page.getByRole("heading", { name: /^For / }).first().textContent()) ?? "";
   const targetProfile = currentHeading.includes("Katie") ? "Geoff" : "Katie";
@@ -401,8 +638,8 @@ test("group watch sessions stay separate from solo watched history", async ({ pa
   await page.goto("/app/title/movie/12");
   await page.getByRole("button", { name: "Watched by current group" }).click();
   await expect(
-    page.getByText(/Brendan \+ Palmer already watched this together/i),
-  ).toBeVisible();
+    page.getByTestId("title-fit-summary"),
+  ).toContainText("Brendan + Palmer already watched this together");
 
   await page.goto("/app/library?tab=WATCHED");
   const watchedCollection = page.getByTestId("library-section-collection");
@@ -504,6 +741,15 @@ test("recommendation context and group watch endpoints are protected and validat
   });
   expect(anonymousGroupWatchResponse.status()).toBe(401);
 
+  const anonymousSharedSaveResponse = await request.post("/api/shared-watchlist", {
+    data: {
+      title: DUNE_TITLE,
+      scope: "GROUP",
+      active: true,
+    },
+  });
+  expect(anonymousSharedSaveResponse.status()).toBe(401);
+
   await signInAs(page, GEOFF_EMAIL);
   const invalidContextResponse = await page.context().request.post(
     "/api/recommendation-context",
@@ -537,6 +783,19 @@ test("recommendation context and group watch endpoints are protected and validat
   );
   expect(invalidActorResponse.status()).toBe(403);
 
+  const invalidSharedActorResponse = await page.context().request.post(
+    "/api/shared-watchlist",
+    {
+      data: {
+        title: DUNE_TITLE,
+        scope: "HOUSEHOLD",
+        active: true,
+        actingUserId: "not-real-user",
+      },
+    },
+  );
+  expect(invalidSharedActorResponse.status()).toBe(403);
+
   const soloGroupWatchResponse = await page.context().request.post(
     "/api/watch-sessions",
     {
@@ -546,6 +805,18 @@ test("recommendation context and group watch endpoints are protected and validat
     },
   );
   expect(soloGroupWatchResponse.status()).toBe(400);
+
+  const soloGroupSharedSaveResponse = await page.context().request.post(
+    "/api/shared-watchlist",
+    {
+      data: {
+        title: DUNE_TITLE,
+        scope: "GROUP",
+        active: true,
+      },
+    },
+  );
+  expect(soloGroupSharedSaveResponse.status()).toBe(400);
 });
 
 test("owner transfer updates governance and preserves invite management", async ({
@@ -652,4 +923,117 @@ test("owner transfer endpoint is protected and validates targets", async ({
     },
   );
   expect(invalidTargetResponse.status()).toBe(400);
+});
+
+test("activity feed surfaces shared planning, watched-together, invite, and governance history", async ({
+  page,
+}) => {
+  const ownerName = "Avery";
+  const memberName = "Jordan";
+  const ownerEmail = uniqueEmail("activity-owner");
+  const memberEmail = uniqueEmail("activity-member");
+
+  await page.goto("/sign-up");
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill(ownerName);
+  await page
+    .getByRole("textbox", { name: "Household name", exact: true })
+    .fill("Activity House");
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(ownerEmail);
+  await page.getByLabel("Password", { exact: true }).fill(DEMO_PASSWORD);
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  await page.goto("/app/household");
+  await page.getByRole("button", { name: "Create invite" }).click();
+  await expect(page.getByText("Latest invite code")).toBeVisible();
+  const inviteCode = await page.locator("#invite-code").inputValue();
+
+  await signOut(page);
+
+  await page.goto(`/sign-up?invite=${inviteCode}`);
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill(memberName);
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(memberEmail);
+  await page.getByLabel("Password", { exact: true }).fill(DEMO_PASSWORD);
+  await page.getByRole("button", { name: "Join household" }).click();
+  await expect(page).toHaveURL(/\/app$/);
+
+  await signOut(page);
+
+  await signInAs(page, ownerEmail);
+  await page.goto("/app/household");
+  await page.getByRole("textbox", { name: "Group name" }).fill("Activity Duo");
+  await page.locator("label").filter({ hasText: ownerName }).click();
+  await page.locator("label").filter({ hasText: memberName }).click();
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/household/groups") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Save and activate group" }).click(),
+  ]);
+
+  await page.goto("/app/title/movie/11");
+  await page.getByRole("button", { name: "Save for current group" }).click();
+  await page.getByRole("button", { name: "Save for current group" }).click();
+
+  await page.goto("/app/title/movie/12");
+  await page.getByRole("button", { name: "Watched by current group" }).click();
+
+  await page.goto("/app/household");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Transfer ownership" }).click();
+
+  await signOut(page);
+
+  await signInAs(page, memberEmail);
+  await page.goto("/app/household");
+  await page.getByRole("button", { name: "Create invite" }).click();
+  const secondInviteCode = await page.locator("#invite-code").inputValue();
+  expect(secondInviteCode).not.toBe("");
+  page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/household/invites/") &&
+        response.url().includes("/revoke") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Revoke invite" }).click(),
+  ]);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/household/members/") &&
+        response.request().method() === "DELETE",
+    ),
+    page.getByRole("button", { name: "Remove member" }).click(),
+  ]);
+
+  await page.goto("/app/activity");
+  await expect(
+    page.getByRole("heading", { name: "Household history for Activity House" }),
+  ).toBeVisible();
+  await expect(page.getByText(`${ownerName} created a household invite`)).toBeVisible();
+  await expect(page.getByText(`${memberName} joined the household`)).toBeVisible();
+  await expect(
+    page.getByText(`${ownerName} saved Dune for ${ownerName} + ${memberName}`),
+  ).toBeVisible();
+  await expect(
+    page.getByText(`${ownerName} removed Dune from ${ownerName} + ${memberName}`),
+  ).toBeVisible();
+  await expect(
+    page.getByText(`${ownerName} and ${memberName} watched Arrival together`),
+  ).toBeVisible();
+  await expect(
+    page.getByText(`Ownership transferred from ${ownerName} to ${memberName}`),
+  ).toBeVisible();
+  await expect(page.getByText(`${memberName} revoked an invite`)).toBeVisible();
+  await expect(
+    page.getByText(`${memberName} removed ${ownerName} from the household`),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Open Dune" }).first().click();
+  await expect(page).toHaveURL(/\/app\/title\/movie\/11$/);
 });

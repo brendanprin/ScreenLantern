@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { recordGroupWatchActivity } from "@/lib/services/activity";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import { toTmdbKey, upsertTitleCache } from "@/lib/services/title-cache";
 import type { GroupWatchState, TitleDetails, TitleSummary } from "@/lib/types";
@@ -25,27 +26,51 @@ export async function createGroupWatchSession(args: {
 
   const cachedTitle = await upsertTitleCache(args.title);
   const participantKey = buildParticipantKey(bootstrap.context.selectedUserIds);
+  const actorName =
+    bootstrap.householdMembers.find((member) => member.id === args.userId)?.name ??
+    "A household member";
+  const contextLabel = bootstrap.context.activeNames.join(" + ") || "this group";
 
-  return prisma.groupWatchSession.upsert({
-    where: {
-      householdId_titleCacheId_participantKey: {
+  return prisma.$transaction(async (tx) => {
+    const existingSession = await tx.groupWatchSession.findUnique({
+      where: {
+        householdId_titleCacheId_participantKey: {
+          householdId: args.householdId,
+          titleCacheId: cachedTitle.id,
+          participantKey,
+        },
+      },
+    });
+
+    if (existingSession) {
+      return existingSession;
+    }
+
+    const watchSession = await tx.groupWatchSession.create({
+      data: {
         householdId: args.householdId,
         titleCacheId: cachedTitle.id,
+        createdById: args.userId,
+        savedGroupId: bootstrap.context.savedGroupId,
         participantKey,
+        participantUserIds: bootstrap.context.selectedUserIds,
       },
-    },
-    update: {
-      savedGroupId: bootstrap.context.savedGroupId,
-      participantUserIds: bootstrap.context.selectedUserIds,
-    },
-    create: {
+    });
+
+    await recordGroupWatchActivity({
+      tx,
       householdId: args.householdId,
-      titleCacheId: cachedTitle.id,
-      createdById: args.userId,
-      savedGroupId: bootstrap.context.savedGroupId,
-      participantKey,
-      participantUserIds: bootstrap.context.selectedUserIds,
-    },
+      actorUserId: args.userId,
+      actorName,
+      title: {
+        id: cachedTitle.id,
+        title: cachedTitle.title,
+      },
+      participantNames: bootstrap.context.activeNames,
+      contextLabel,
+    });
+
+    return watchSession;
   });
 }
 

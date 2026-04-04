@@ -9,6 +9,13 @@ import {
 } from "@/lib/household-permissions";
 import { prisma } from "@/lib/prisma";
 import {
+  recordInviteCreatedActivity,
+  recordInviteRedeemedActivity,
+  recordInviteRevokedActivity,
+  recordMemberRemovedActivity,
+  recordOwnershipTransferredActivity,
+} from "@/lib/services/activity";
+import {
   createGroupSchema,
   createInviteSchema,
   removeMemberSchema,
@@ -122,7 +129,7 @@ export async function transferHouseholdOwnership(args: {
       },
     });
 
-    return tx.user.update({
+    const newOwner = await tx.user.update({
       where: { id: target.id },
       data: {
         householdRole: HouseholdRole.OWNER,
@@ -134,6 +141,17 @@ export async function transferHouseholdOwnership(args: {
         householdRole: true,
       },
     });
+
+    await recordOwnershipTransferredActivity({
+      tx,
+      householdId: args.householdId,
+      actorUserId: actor.id,
+      fromName: actor.name,
+      toName: target.name,
+      targetUserId: target.id,
+    });
+
+    return newOwner;
   });
 }
 
@@ -222,6 +240,13 @@ export async function redeemHouseholdInviteForRegistration(args: {
       throw new Error("That invite is no longer active.");
     }
 
+    await recordInviteRedeemedActivity({
+      tx,
+      householdId: invite.householdId,
+      actorUserId: user.id,
+      actorName: user.name,
+    });
+
     return user;
   });
 }
@@ -278,7 +303,7 @@ export async function createHouseholdInvite(args: {
     throw new Error(parsed.error.issues[0]?.message ?? "Invalid invite input.");
   }
 
-  await ensureOwnerAccess(args.createdById, args.householdId);
+  const actor = await ensureOwnerAccess(args.createdById, args.householdId);
 
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + parsed.data.expiresInDays);
@@ -287,14 +312,27 @@ export async function createHouseholdInvite(args: {
     const code = createInviteCode();
 
     try {
-      return await prisma.householdInvite.create({
-        data: {
+      return await prisma.$transaction(async (tx) => {
+        const invite = await tx.householdInvite.create({
+          data: {
+            householdId: args.householdId,
+            createdById: args.createdById,
+            code,
+            expiresAt,
+            role: HouseholdRole.MEMBER,
+          },
+        });
+
+        await recordInviteCreatedActivity({
+          tx,
           householdId: args.householdId,
-          createdById: args.createdById,
-          code,
+          actorUserId: actor.id,
+          actorName: actor.name,
           expiresAt,
-          role: HouseholdRole.MEMBER,
-        },
+          inviteCode: code,
+        });
+
+        return invite;
       });
     } catch (error) {
       if (
@@ -316,7 +354,7 @@ export async function revokeHouseholdInvite(args: {
   requesterUserId: string;
   inviteId: string;
 }) {
-  await ensureOwnerAccess(args.requesterUserId, args.householdId);
+  const actor = await ensureOwnerAccess(args.requesterUserId, args.householdId);
 
   const invite = await prisma.householdInvite.findUnique({
     where: { id: args.inviteId },
@@ -337,11 +375,23 @@ export async function revokeHouseholdInvite(args: {
     throw new Error("Only active invites can be revoked.");
   }
 
-  return prisma.householdInvite.update({
-    where: { id: invite.id },
-    data: {
-      revokedAt: new Date(),
-    },
+  return prisma.$transaction(async (tx) => {
+    const updatedInvite = await tx.householdInvite.update({
+      where: { id: invite.id },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+
+    await recordInviteRevokedActivity({
+      tx,
+      householdId: args.householdId,
+      actorUserId: actor.id,
+      actorName: actor.name,
+      inviteCode: updatedInvite.code,
+    });
+
+    return updatedInvite;
   });
 }
 
@@ -362,6 +412,7 @@ export async function removeHouseholdMember(args: {
       id: true,
       householdId: true,
       householdRole: true,
+      name: true,
     },
   });
 
@@ -430,13 +481,24 @@ export async function removeHouseholdMember(args: {
       },
     });
 
-    return tx.user.update({
+    const removedUser = await tx.user.update({
       where: { id: target.id },
       data: {
         householdId: newHousehold.id,
         householdRole: HouseholdRole.OWNER,
       },
     });
+
+    await recordMemberRemovedActivity({
+      tx,
+      householdId: args.householdId,
+      actorUserId: actor.id,
+      actorName: actor.name,
+      removedUserId: target.id,
+      removedName: target.name,
+    });
+
+    return removedUser;
   });
 }
 

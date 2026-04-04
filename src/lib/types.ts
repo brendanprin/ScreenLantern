@@ -1,5 +1,16 @@
 export type MediaTypeKey = "movie" | "tv";
 export type RecommendationModeKey = "SOLO" | "GROUP";
+export type ReminderAggressivenessKey = "LIGHT" | "BALANCED" | "PROACTIVE";
+export type SharedWatchlistScopeKey = "GROUP" | "HOUSEHOLD";
+export type HouseholdActivityTypeKey =
+  | "SHARED_SAVE_ADDED"
+  | "SHARED_SAVE_REMOVED"
+  | "GROUP_WATCH_RECORDED"
+  | "INVITE_CREATED"
+  | "INVITE_REVOKED"
+  | "INVITE_REDEEMED"
+  | "OWNERSHIP_TRANSFERRED"
+  | "MEMBER_REMOVED";
 
 export interface ProviderInfo {
   id?: number;
@@ -83,6 +94,11 @@ export interface RecommendationItem {
 
 export type RecommendationLaneId = "available_now" | "back_on_your_radar";
 
+export type WatchlistResurfaceSource =
+  | "personal"
+  | "shared_group"
+  | "shared_household";
+
 export interface RecommendationLane {
   id: RecommendationLaneId;
   title: string;
@@ -113,6 +129,42 @@ export interface RecommendationExplanation {
   detail?: string | null;
 }
 
+export type TitleFitMemberTone = "strong" | "good" | "neutral" | "conflict";
+export type TitleFitSummaryTone =
+  | "solo_strong"
+  | "solo_good"
+  | "solo_mixed"
+  | "solo_conflict"
+  | "group_strong_overlap"
+  | "group_safe_compromise"
+  | "group_mixed"
+  | "group_conflict"
+  | "group_rewatch"
+  | "household_planning";
+
+export interface TitleFitMemberSignal {
+  id: string;
+  name: string;
+  isActiveContextMember: boolean;
+  tone: TitleFitMemberTone;
+  label: string;
+  detail: string;
+  chips: string[];
+}
+
+export interface TitleFitSummary {
+  tone: TitleFitSummaryTone;
+  badge: string;
+  headline: string;
+  detail: string;
+  supportNote?: string | null;
+  bestForLabel?: string | null;
+  contextLabel: string;
+  isGroupMode: boolean;
+  isWatchedByCurrentGroup: boolean;
+  members: TitleFitMemberSignal[];
+}
+
 export interface ReminderItem {
   id: string;
   category: ReminderCategoryKey;
@@ -129,12 +181,38 @@ export interface ReminderItem {
   badges?: string[];
 }
 
+export interface ReminderPreferences {
+  enableAvailableNow: boolean;
+  enableWatchlistResurface: boolean;
+  enableGroupWatchCandidate: boolean;
+  enableSoloReminders: boolean;
+  enableGroupReminders: boolean;
+  aggressiveness: ReminderAggressivenessKey;
+  allowDismissedReappear: boolean;
+}
+
 export interface ReminderInboxResult {
   contextLabel: string;
   mode: RecommendationModeKey;
   isGroupMode: boolean;
   unreadCount: number;
   items: ReminderItem[];
+  tuningNote?: string | null;
+}
+
+export interface HouseholdActivityItem {
+  id: string;
+  type: HouseholdActivityTypeKey;
+  summary: string;
+  detail?: string | null;
+  contextLabel?: string | null;
+  createdAt: string;
+  actorName?: string | null;
+  title?: {
+    title: string;
+    mediaType: MediaTypeKey;
+    href: string;
+  } | null;
 }
 
 export interface HouseholdMemberOption {
@@ -165,6 +243,18 @@ export interface PersistedRecommendationContext {
 export interface GroupWatchState {
   isWatchedByCurrentGroup: boolean;
   watchedAt?: string | null;
+}
+
+export interface SharedWatchlistPresence {
+  isSaved: boolean;
+  isSavedByViewer: boolean;
+  savedByNames: string[];
+  contextLabel: string;
+}
+
+export interface SharedWatchlistTitleState {
+  group: SharedWatchlistPresence | null;
+  household: SharedWatchlistPresence | null;
 }
 
 export interface TasteProfile {

@@ -8,6 +8,7 @@ import { TitlePoster } from "@/components/title-poster";
 import type {
   GroupWatchState,
   RecommendationExplanation,
+  SharedWatchlistTitleState,
   TitleSummary,
 } from "@/lib/types";
 import {
@@ -23,13 +24,17 @@ interface TitleCardProps {
   activeTypes?: InteractionType[];
   actingUserId?: string;
   activeGroupWatch?: GroupWatchState;
+  sharedWatchlistState?: SharedWatchlistTitleState;
   showGroupWatchAction?: boolean;
+  showGroupSaveAction?: boolean;
+  showHouseholdSaveAction?: boolean;
   showSoloWatchedAction?: boolean;
   showPreferenceActions?: boolean;
   showActions?: boolean;
   recommendationExplanations?: RecommendationExplanation[];
   recommendationContextLabel?: string;
   recommendationBadges?: string[];
+  fitSummaryLabel?: string | null;
   testId?: string;
 }
 
@@ -38,13 +43,17 @@ export function TitleCard({
   activeTypes = [],
   actingUserId,
   activeGroupWatch,
+  sharedWatchlistState,
   showGroupWatchAction = false,
+  showGroupSaveAction = false,
+  showHouseholdSaveAction = false,
   showSoloWatchedAction = true,
   showPreferenceActions = true,
   showActions = true,
   recommendationExplanations = [],
   recommendationContextLabel,
   recommendationBadges = [],
+  fitSummaryLabel,
   testId,
 }: TitleCardProps) {
   const primaryExplanation = recommendationExplanations[0];
@@ -71,6 +80,7 @@ export function TitleCard({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {fitSummaryLabel ? <Badge variant="outline">{fitSummaryLabel}</Badge> : null}
               {recommendationBadges.map((badge) => (
                 <Badge
                   key={badge}
@@ -131,7 +141,10 @@ export function TitleCard({
                 activeTypes={activeTypes}
                 actingUserId={actingUserId}
                 activeGroupWatch={activeGroupWatch}
+                sharedWatchlistState={sharedWatchlistState}
                 showGroupWatchAction={showGroupWatchAction}
+                showGroupSaveAction={showGroupSaveAction}
+                showHouseholdSaveAction={showHouseholdSaveAction}
                 showSoloWatchedAction={showSoloWatchedAction}
                 showPreferenceActions={showPreferenceActions}
               />

@@ -42,6 +42,28 @@ enum ReminderCategory {
   GROUP_WATCH_CANDIDATE
 }
 
+enum ReminderAggressiveness {
+  LIGHT
+  BALANCED
+  PROACTIVE
+}
+
+enum SharedWatchlistScope {
+  GROUP
+  HOUSEHOLD
+}
+
+enum HouseholdActivityType {
+  SHARED_SAVE_ADDED
+  SHARED_SAVE_REMOVED
+  GROUP_WATCH_RECORDED
+  INVITE_CREATED
+  INVITE_REVOKED
+  INVITE_REDEEMED
+  OWNERSHIP_TRANSFERRED
+  MEMBER_REMOVED
+}
+
 model Household {
   id                 String              @id @default(cuid())
   name               String
@@ -52,6 +74,9 @@ model Household {
   recommendationRuns RecommendationRun[]
   groupWatchSessions GroupWatchSession[]
   reminders          UserReminder[]
+  reminderPreferences UserReminderPreference[]
+  sharedWatchlistEntries SharedWatchlistEntry[]
+  activities         HouseholdActivity[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -77,6 +102,9 @@ model User {
   requestedRuns      RecommendationRun[]     @relation("RunRequester")
   createdGroupWatchSessions GroupWatchSession[] @relation("CreatedGroupWatchSessions")
   reminders          UserReminder[]
+  reminderPreference UserReminderPreference?
+  sharedWatchlistEntries SharedWatchlistEntry[] @relation("SharedWatchlistSaver")
+  householdActivities HouseholdActivity[] @relation("HouseholdActivityActor")
 }
 
 model HouseholdGroup {
@@ -92,6 +120,7 @@ model HouseholdGroup {
   recommendationContexts UserRecommendationContext[] @relation("SavedRecommendationContextGroup")
   groupWatchSessions GroupWatchSession[] @relation("SavedGroupWatchSessions")
   reminders   UserReminder[]         @relation("SavedReminderGroup")
+  sharedWatchlistEntries SharedWatchlistEntry[] @relation("SavedSharedWatchlistGroup")
 
   @@unique([householdId, name])
 }
@@ -143,6 +172,8 @@ model TitleCache {
   interactions       UserTitleInteraction[]
   groupWatchSessions GroupWatchSession[]
   reminders          UserReminder[]
+  sharedWatchlistEntries SharedWatchlistEntry[]
+  activities         HouseholdActivity[]
 
   @@unique([tmdbId, mediaType])
 }
@@ -241,4 +272,64 @@ model UserReminder {
   @@unique([userId, contextKey, category, titleCacheId])
   @@index([userId, contextKey, isActive, readAt])
   @@index([householdId, updatedAt])
+}
+
+model UserReminderPreference {
+  id                          String                 @id @default(cuid())
+  userId                      String                 @unique
+  householdId                 String
+  enableAvailableNow          Boolean                @default(true)
+  enableWatchlistResurface    Boolean                @default(true)
+  enableGroupWatchCandidate   Boolean                @default(true)
+  enableSoloReminders         Boolean                @default(true)
+  enableGroupReminders        Boolean                @default(true)
+  aggressiveness              ReminderAggressiveness @default(BALANCED)
+  allowDismissedReappear      Boolean                @default(false)
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+  user                        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household                   Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, updatedAt])
+}
+
+model SharedWatchlistEntry {
+  id              String               @id @default(cuid())
+  householdId     String
+  titleCacheId    String
+  scope           SharedWatchlistScope
+  contextKey      String
+  contextLabel    String
+  selectedUserIds String[]             @default([])
+  savedGroupId    String?
+  savedById       String
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  household       Household            @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  title           TitleCache           @relation(fields: [titleCacheId], references: [id], onDelete: Cascade)
+  savedGroup      HouseholdGroup?      @relation("SavedSharedWatchlistGroup", fields: [savedGroupId], references: [id], onDelete: SetNull)
+  savedBy         User                 @relation("SharedWatchlistSaver", fields: [savedById], references: [id], onDelete: Cascade)
+
+  @@unique([savedById, contextKey, titleCacheId])
+  @@index([householdId, contextKey, titleCacheId])
+  @@index([householdId, scope, updatedAt])
+}
+
+model HouseholdActivity {
+  id          String                @id @default(cuid())
+  householdId String
+  actorUserId String?
+  titleCacheId String?
+  type        HouseholdActivityType
+  contextLabel String?
+  summary     String
+  detail      String?
+  metadataJson Json?
+  createdAt   DateTime              @default(now())
+  household   Household             @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  actor       User?                 @relation("HouseholdActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  title       TitleCache?           @relation(fields: [titleCacheId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, createdAt])
+  @@index([householdId, type, createdAt])
 }

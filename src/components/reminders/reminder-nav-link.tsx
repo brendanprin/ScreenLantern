@@ -21,8 +21,10 @@ export function ReminderNavLink() {
   const deferredUserIds = useDeferredValue(selectedUserIds);
   const userIdsParam = deferredUserIds.join(",");
   const [unreadCount, setUnreadCount] = useState(0);
+  const safePathname = pathname ?? "";
   const isActive =
-    pathname === "/app/reminders" || pathname.startsWith("/app/reminders/");
+    safePathname === "/app/reminders" ||
+    safePathname.startsWith("/app/reminders/");
 
   useEffect(() => {
     const controller = new AbortController();

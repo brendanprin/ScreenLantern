@@ -184,6 +184,8 @@ describe("scoreWatchlistResurfacingCandidate", () => {
       mode: "solo",
       activeNames: ["Brendan"],
       savedByNames: ["Brendan"],
+      saverCount: 1,
+      source: "personal",
       currentContextWatched: false,
       groupWatchedBefore: false,
     });
@@ -205,6 +207,8 @@ describe("scoreWatchlistResurfacingCandidate", () => {
       mode: "group",
       activeNames: ["Brendan", "Palmer"],
       savedByNames: ["Brendan", "Palmer"],
+      saverCount: 2,
+      source: "personal",
       sharedGenres: ["Science Fiction"],
       currentContextWatched: false,
       groupWatchedBefore: false,
@@ -224,6 +228,8 @@ describe("scoreWatchlistResurfacingCandidate", () => {
       mode: "group",
       activeNames: ["Brendan", "Palmer"],
       savedByNames: ["Palmer"],
+      saverCount: 1,
+      source: "personal",
       currentContextWatched: false,
       groupWatchedBefore: true,
     });
@@ -243,6 +249,7 @@ describe("buildWatchlistResurfacingExplanations", () => {
       mode: "solo",
       activeNames: ["Brendan"],
       savedByNames: ["Brendan"],
+      source: "personal",
       availabilityMatch: "unknown",
       matchedGenres: [],
       matchedSharedGenres: [],
@@ -254,6 +261,54 @@ describe("buildWatchlistResurfacingExplanations", () => {
       expect.objectContaining({
         category: "watchlist_resurface",
         summary: "Back on your radar from your watchlist",
+      }),
+    );
+  });
+
+  it("prefers group-shared explanation language when the title was saved for the active group", () => {
+    const explanations = buildWatchlistResurfacingExplanations({
+      title: baseTitle,
+      mode: "group",
+      activeNames: ["Brendan", "Palmer"],
+      savedByNames: ["Brendan"],
+      source: "shared_group",
+      savedContextLabel: "Brendan + Palmer",
+      availabilityMatch: "selected_services",
+      matchedGenres: ["Science Fiction"],
+      matchedSharedGenres: ["Science Fiction"],
+      mediaTypeMatch: true,
+      runtimeMatch: false,
+    });
+
+    expect(explanations[0]).toEqual(
+      expect.objectContaining({
+        category: "watchlist_resurface",
+        summary: "Saved for Brendan + Palmer and available now",
+      }),
+    );
+    expect(explanations[0]?.detail).toContain(
+      "added this to the shared watchlist for Brendan + Palmer",
+    );
+  });
+
+  it("uses household-shared explanation language when the title was saved for the household", () => {
+    const explanations = buildWatchlistResurfacingExplanations({
+      title: baseTitle,
+      mode: "group",
+      activeNames: ["Brendan", "Palmer"],
+      savedByNames: ["Katie"],
+      source: "shared_household",
+      availabilityMatch: "other_services",
+      matchedGenres: [],
+      matchedSharedGenres: [],
+      mediaTypeMatch: false,
+      runtimeMatch: false,
+    });
+
+    expect(explanations[0]).toEqual(
+      expect.objectContaining({
+        category: "watchlist_resurface",
+        summary: "Saved by Katie for the household",
       }),
     );
   });

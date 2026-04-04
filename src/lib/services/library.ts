@@ -11,11 +11,16 @@ import {
   type SelectedServiceAvailability,
   type WatchlistResurfacingCandidate,
 } from "@/lib/services/recommendations";
+import {
+  getCurrentSharedWatchlistStateMap,
+  getSharedWatchlistCollectionItems,
+} from "@/lib/services/shared-watchlist";
 import { mapTitleCacheToSummary, toTmdbKey } from "@/lib/services/title-cache";
 import type {
   GroupWatchState,
   RecommendationExplanation,
   RecommendationModeKey,
+  SharedWatchlistTitleState,
   TitleSummary,
 } from "@/lib/types";
 
@@ -38,10 +43,17 @@ export const LIBRARY_COLLECTION_OPTIONS = [
   InteractionType.LIKE,
   InteractionType.DISLIKE,
   InteractionType.HIDE,
+  "shared_group",
+  "shared_household",
 ] as const;
 export type LibraryCollection = (typeof LIBRARY_COLLECTION_OPTIONS)[number];
 
-type ActionMode = "solo_full" | "group_watch" | "none";
+type ActionMode =
+  | "solo_full"
+  | "group_watch"
+  | "shared_only"
+  | "shared_group"
+  | "none";
 type LibraryInteractionKind = "watchlist" | "watched" | "liked" | "deprioritized";
 
 export interface LibrarySectionItem {
@@ -50,6 +62,7 @@ export interface LibrarySectionItem {
   title: TitleSummary;
   activeTypes: InteractionType[];
   activeGroupWatch?: GroupWatchState;
+  sharedWatchlistState?: SharedWatchlistTitleState;
   explanations: RecommendationExplanation[];
   badges: string[];
   availabilityMatch: SelectedServiceAvailability;
@@ -65,6 +78,8 @@ export interface LibrarySection {
   emptyMessage: string;
   items: LibrarySectionItem[];
   actionMode: ActionMode;
+  showGroupSaveAction?: boolean;
+  showHouseholdSaveAction?: boolean;
 }
 
 export interface LibraryWorkspace {
@@ -145,6 +160,34 @@ function buildCollectionExplanations(args: {
     interactionTypes: args.interactionTypes,
     isGroupMode: args.isGroupMode,
   });
+}
+
+function buildSharedCollectionExplanations(args: {
+  scope: "GROUP" | "HOUSEHOLD";
+  contextLabel: string;
+  savedByNames: string[];
+}) {
+  const savedByLabel = formatList(args.savedByNames);
+
+  return [
+    {
+      category: "watchlist_resurface" as const,
+      summary:
+        args.scope === "GROUP"
+          ? `Saved for ${args.contextLabel}`
+          : savedByLabel
+            ? `Saved by ${savedByLabel} for the household`
+            : "Saved for the household",
+      detail:
+        args.scope === "GROUP"
+          ? savedByLabel
+            ? `${savedByLabel} added this to the shared watchlist for ${args.contextLabel}.`
+            : "This title is on the shared watchlist for the active group."
+          : savedByLabel
+            ? `${savedByLabel} added this to the household shared watchlist.`
+            : "This title is on the household shared watchlist.",
+    },
+  ];
 }
 
 function buildProviderBadges(
@@ -307,6 +350,43 @@ async function hydrateGroupedTitles<T extends { title: TitleSummary }>(items: T[
   }));
 }
 
+async function buildSharedCollectionItems(args: {
+  items: Awaited<ReturnType<typeof getSharedWatchlistCollectionItems>>["items"];
+  preferredProviders: string[];
+  contextLabel: string;
+}) {
+  const hydrated = await hydrateGroupedTitles(
+    args.items.map((entry) => ({
+      ...entry,
+      updatedAt: new Date(entry.updatedAt),
+    })),
+  );
+
+  return hydrated.map<LibrarySectionItem>((entry) => {
+    const availabilityMatch = classifySelectedServiceAvailability(
+      entry.title,
+      args.preferredProviders,
+    );
+
+    return {
+      tmdbKey: toTmdbKey(entry.title.tmdbId, entry.title.mediaType),
+      titleCacheId: entry.titleCacheId,
+      title: entry.title,
+      activeTypes: [],
+      explanations: buildSharedCollectionExplanations({
+        scope: entry.scope,
+        contextLabel: entry.contextLabel || args.contextLabel,
+        savedByNames: entry.savedByNames,
+      }),
+      badges: buildProviderBadges(availabilityMatch),
+      availabilityMatch,
+      updatedAt: entry.updatedAt.toISOString(),
+      score: new Date(entry.updatedAt).getTime(),
+      isWatched: false,
+    };
+  });
+}
+
 async function buildWatchlistSections(args: {
   userIds: string[];
   householdId: string;
@@ -395,37 +475,43 @@ async function buildWatchlistSections(args: {
         id: "available_now",
         title: args.isGroupMode ? "Available now for this group" : "Available now",
         description: args.isGroupMode
-          ? "Saved titles this active group can actually start on the services already in play."
+          ? "Personal and shared saves this active group can actually start on the services already in play."
           : "Saved titles that are ready to start on this profile's selected services.",
         emptyMessage: args.isGroupMode
-          ? "Nothing from this group's saved queue is available on the selected services right now."
+          ? "Nothing from this group's personal or shared saves is available on the selected services right now."
           : "Nothing from this watchlist is available on the selected services right now.",
         items: availableItems,
         actionMode: args.isGroupMode ? ("group_watch" as const) : ("solo_full" as const),
+        showGroupSaveAction: args.isGroupMode,
+        showHouseholdSaveAction: true,
       },
       {
         id: "best_fit",
         title: args.isGroupMode ? "Good for this group" : "Best from your watchlist",
         description: args.isGroupMode
-          ? "Saved titles that still fit this exact room and have not been watched together yet."
+          ? "Shared and personal saves that still fit this exact room and have not been watched together yet."
           : "Saved titles with the strongest current fit across taste, runtime, and service practicality.",
         emptyMessage: args.isGroupMode
           ? "No fresh shared candidates matched this group's current filters."
           : "No watchlist titles matched this profile's current filters.",
         items: bestItems,
         actionMode: args.isGroupMode ? ("group_watch" as const) : ("solo_full" as const),
+        showGroupSaveAction: args.isGroupMode,
+        showHouseholdSaveAction: true,
       },
       {
         id: "recently_saved",
         title: "Recently saved",
         description: args.isGroupMode
-          ? "Fresh saves from the selected members that are still in play for tonight."
+          ? "Fresh personal and shared saves that are still in play for tonight."
           : "Fresh saves that have not fallen out of rotation yet.",
         emptyMessage: args.isGroupMode
           ? "No recent group-relevant saves matched this view."
           : "No recent saves matched this view.",
         items: recentItems,
         actionMode: args.isGroupMode ? ("group_watch" as const) : ("solo_full" as const),
+        showGroupSaveAction: args.isGroupMode,
+        showHouseholdSaveAction: true,
       },
     ],
   };
@@ -588,6 +674,8 @@ async function buildGroupWatchedItems(args: {
 async function buildCollectionSection(args: {
   collection: LibraryCollection;
   userIds: string[];
+  viewerUserId: string;
+  actingUserId: string | null;
   householdId: string;
   preferredProviders: string[];
   contextLabel: string;
@@ -601,8 +689,55 @@ async function buildCollectionSection(args: {
 
   let items: LibrarySectionItem[] = [];
   let actionMode: ActionMode = args.isGroupMode ? "none" : "solo_full";
+  let title = "Collection";
+  let description = args.isGroupMode
+    ? "This collection view respects the active group context where that distinction exists."
+    : "This collection view follows the active solo profile instead of the signed-in account.";
+  let showGroupSaveAction = false;
+  let showHouseholdSaveAction = false;
 
-  if (args.collection === InteractionType.WATCHED) {
+  if (args.collection === "shared_group") {
+    const shared = await getSharedWatchlistCollectionItems({
+      userId: args.viewerUserId,
+      actorUserId: args.actingUserId ?? undefined,
+      householdId: args.householdId,
+      scope: "GROUP",
+    });
+
+    items = await buildSharedCollectionItems({
+      items: shared.items,
+      preferredProviders: args.preferredProviders,
+      contextLabel: shared.contextLabel ?? args.contextLabel,
+    });
+    actionMode = args.isGroupMode ? "shared_group" : "none";
+    title = args.isGroupMode
+      ? `Collection: Shared for ${shared.contextLabel ?? args.contextLabel}`
+      : "Collection: Shared for this group";
+    description = args.isGroupMode
+      ? "Titles intentionally saved for this exact active group."
+      : "Switch to a group context to work with group-shared watchlist entries.";
+    showGroupSaveAction = args.isGroupMode;
+    showHouseholdSaveAction = args.isGroupMode;
+  } else if (args.collection === "shared_household") {
+    const shared = await getSharedWatchlistCollectionItems({
+      userId: args.viewerUserId,
+      actorUserId: args.actingUserId ?? undefined,
+      householdId: args.householdId,
+      scope: "HOUSEHOLD",
+    });
+
+    items = await buildSharedCollectionItems({
+      items: shared.items,
+      preferredProviders: args.preferredProviders,
+      contextLabel: shared.contextLabel ?? args.contextLabel,
+    });
+    actionMode = args.isGroupMode ? "shared_group" : "shared_only";
+    title = "Collection: Shared for household";
+    description =
+      "Titles intentionally saved for the broader household without changing anyone's personal taste state.";
+    showGroupSaveAction = args.isGroupMode;
+    showHouseholdSaveAction = true;
+  } else if (args.collection === InteractionType.WATCHED) {
     items = args.isGroupMode
       ? await buildGroupWatchedItems({
           userIds: args.userIds,
@@ -619,6 +754,7 @@ async function buildCollectionSection(args: {
             contextLabel: args.contextLabel,
             kind: "watched",
           });
+    title = args.isGroupMode ? "Collection: Watched together" : "Collection: Watched";
   } else {
     items = await buildGroupedInteractionItems({
       userIds: args.userIds,
@@ -638,30 +774,32 @@ async function buildCollectionSection(args: {
     if (args.collection === InteractionType.WATCHLIST && args.isGroupMode) {
       actionMode = "group_watch";
     }
+
+    title =
+      `Collection: ${
+        args.collection === InteractionType.WATCHLIST
+          ? args.isGroupMode
+            ? "Personal watchlists in this group"
+            : "Watchlist"
+          : args.collection === InteractionType.LIKE
+            ? "Liked"
+            : args.collection === InteractionType.DISLIKE
+              ? "Disliked"
+              : "Hidden"
+      }`;
+    showGroupSaveAction = args.collection === InteractionType.WATCHLIST && args.isGroupMode;
+    showHouseholdSaveAction = args.collection === InteractionType.WATCHLIST;
   }
 
   return {
     id: "collection",
-    title:
-      args.collection === InteractionType.WATCHED && args.isGroupMode
-        ? "Collection: Watched together"
-        : `Collection: ${
-            args.collection === InteractionType.WATCHLIST
-              ? "Watchlist"
-              : args.collection === InteractionType.WATCHED
-                ? "Watched"
-                : args.collection === InteractionType.LIKE
-                  ? "Liked"
-                  : args.collection === InteractionType.DISLIKE
-                    ? "Disliked"
-                    : "Hidden"
-          }`,
-    description: args.isGroupMode
-      ? "This collection view respects the active group context where that distinction exists."
-      : "This collection view follows the active solo profile instead of the signed-in account.",
+    title,
+    description,
     emptyMessage: "Nothing in this collection matched the current view.",
     items: applyFocusAndSort(items, args.focus, args.sort).slice(0, 12),
     actionMode,
+    showGroupSaveAction,
+    showHouseholdSaveAction,
   } satisfies LibrarySection;
 }
 
@@ -689,6 +827,7 @@ export async function getLibraryWorkspace(args: {
     : "overview";
   const context = bootstrap.context;
   const contextLabel = buildContextLabel(context.activeNames, context.isGroupMode);
+  const actingUserId = context.isGroupMode ? null : context.selectedUserIds[0] ?? args.userId;
   const watchlistSections = await buildWatchlistSections({
     userIds: context.selectedUserIds,
     householdId: args.householdId,
@@ -698,6 +837,90 @@ export async function getLibraryWorkspace(args: {
     sort,
   });
   const preferredProviders = watchlistSections.profile.preferredProviders;
+  const sharedGroupCollection = context.isGroupMode
+    ? await getSharedWatchlistCollectionItems({
+        userId: args.userId,
+        actorUserId: args.userId,
+        householdId: args.householdId,
+        scope: "GROUP",
+      })
+    : { contextLabel: null, items: [] as Awaited<
+        ReturnType<typeof getSharedWatchlistCollectionItems>
+      >["items"] };
+  const sharedHouseholdCollection = await getSharedWatchlistCollectionItems({
+    userId: args.userId,
+    actorUserId: actingUserId ?? args.userId,
+    householdId: args.householdId,
+    scope: "HOUSEHOLD",
+  });
+  const sharedOverviewTitleCacheIds = [
+    ...sharedGroupCollection.items.map((item) => item.titleCacheId),
+    ...sharedHouseholdCollection.items.map((item) => item.titleCacheId),
+  ];
+  const sharedOverviewWatchMap = context.isGroupMode
+    ? await getGroupWatchStateMap({
+        householdId: args.householdId,
+        userIds: context.selectedUserIds,
+        titleCacheIds: sharedOverviewTitleCacheIds,
+      })
+    : new Map<string, GroupWatchState>();
+  const sharedGroupOverviewItems = context.isGroupMode
+    ? applyFocusAndSort(
+        (await buildSharedCollectionItems({
+          items: sharedGroupCollection.items,
+          preferredProviders,
+          contextLabel: sharedGroupCollection.contextLabel ?? contextLabel,
+        })).filter(
+          (item) => !sharedOverviewWatchMap.get(item.titleCacheId)?.isWatchedByCurrentGroup,
+        ),
+        focus,
+        sort,
+      ).slice(0, 6)
+    : [];
+  const sharedHouseholdOverviewItems = applyFocusAndSort(
+    (await buildSharedCollectionItems({
+      items: sharedHouseholdCollection.items,
+      preferredProviders,
+      contextLabel: sharedHouseholdCollection.contextLabel ?? contextLabel,
+    })).filter(
+      (item) =>
+        !context.isGroupMode ||
+        !sharedOverviewWatchMap.get(item.titleCacheId)?.isWatchedByCurrentGroup,
+    ),
+    focus,
+    sort,
+  ).slice(0, 6);
+  const sharedSections: LibrarySection[] = [];
+
+  if (context.isGroupMode) {
+    sharedSections.push({
+      id: "shared_group",
+      title: `Shared for ${sharedGroupCollection.contextLabel ?? contextLabel}`,
+      description:
+        "Titles intentionally saved for this exact group, kept separate from each member's personal watchlist.",
+      emptyMessage:
+        "Nothing is currently saved just for this group that still needs a fresh shared decision.",
+      items: sharedGroupOverviewItems,
+      actionMode: "shared_group",
+      showGroupSaveAction: true,
+      showHouseholdSaveAction: true,
+    });
+  }
+
+  sharedSections.push({
+    id: "shared_household",
+    title: "Shared for household",
+    description: context.isGroupMode
+      ? "Household-shared planning titles that still look viable for this active group."
+      : "Titles saved for the broader household without turning them into your personal watchlist.",
+    emptyMessage: context.isGroupMode
+      ? "No household-shared titles currently stand out for this group."
+      : "Nothing is currently saved for the household.",
+    items: sharedHouseholdOverviewItems,
+    actionMode: context.isGroupMode ? "shared_group" : "shared_only",
+    showGroupSaveAction: context.isGroupMode,
+    showHouseholdSaveAction: true,
+  });
   const watchedSection: LibrarySection = {
     id: "watched",
     title: context.isGroupMode ? "Already watched together" : "Already watched",
@@ -756,6 +979,8 @@ export async function getLibraryWorkspace(args: {
   const collectionSection = await buildCollectionSection({
     collection,
     userIds: context.selectedUserIds,
+    viewerUserId: args.userId,
+    actingUserId,
     householdId: args.householdId,
     preferredProviders,
     contextLabel,
@@ -767,12 +992,16 @@ export async function getLibraryWorkspace(args: {
   const sections = [
     collectionSection,
     ...watchlistSections.sections,
+    ...sharedSections,
     watchedSection,
     deprioritizedSection,
   ].filter((section): section is LibrarySection => Boolean(section));
 
   const actionableTitleCacheIds = sections
-    .filter((section) => section.actionMode === "group_watch")
+    .filter(
+      (section) =>
+        section.actionMode === "group_watch" || section.actionMode === "shared_group",
+    )
     .flatMap((section) => section.items.map((item) => item.titleCacheId));
   const groupWatchStateMap = context.isGroupMode
     ? await getGroupWatchStateMap({
@@ -781,7 +1010,6 @@ export async function getLibraryWorkspace(args: {
         titleCacheIds: actionableTitleCacheIds,
       })
     : new Map<string, GroupWatchState>();
-  const actingUserId = context.isGroupMode ? null : context.selectedUserIds[0] ?? args.userId;
   const interactionMap = actingUserId
     ? await getInteractionMap(
         actingUserId,
@@ -793,6 +1021,12 @@ export async function getLibraryWorkspace(args: {
         ),
       )
     : new Map<string, InteractionType[]>();
+  const sharedWatchlistStateMap = await getCurrentSharedWatchlistStateMap({
+    userId: args.userId,
+    actorUserId: actingUserId ?? args.userId,
+    householdId: args.householdId,
+    titleCacheIds: [...new Set(sections.flatMap((section) => section.items.map((item) => item.titleCacheId)))],
+  });
 
   return {
     contextLabel,
@@ -811,9 +1045,11 @@ export async function getLibraryWorkspace(args: {
             ? interactionMap.get(item.tmdbKey) ?? []
             : item.activeTypes,
         activeGroupWatch:
-          section.actionMode === "group_watch"
+          section.actionMode === "group_watch" || section.actionMode === "shared_group"
             ? groupWatchStateMap.get(item.titleCacheId)
             : item.activeGroupWatch,
+        sharedWatchlistState:
+          sharedWatchlistStateMap.get(item.titleCacheId) ?? item.sharedWatchlistState,
       })),
     })),
   };

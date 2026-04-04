@@ -231,6 +231,18 @@ async function main() {
     where: { householdId: household.id },
   });
 
+  await prisma.userReminderPreference.deleteMany({
+    where: { householdId: household.id },
+  });
+
+  await prisma.sharedWatchlistEntry.deleteMany({
+    where: { householdId: household.id },
+  });
+
+  await prisma.householdActivity.deleteMany({
+    where: { householdId: household.id },
+  });
+
   await prisma.householdGroup.create({
     data: {
       householdId: household.id,
@@ -245,6 +257,13 @@ async function main() {
         },
       },
     },
+  });
+
+  await prisma.userReminderPreference.createMany({
+    data: createdUsers.map((user) => ({
+      userId: user.id,
+      householdId: household.id,
+    })),
   });
 
   await prisma.householdInvite.create({

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TitleCard } from "@/components/title-card";
 import { getCurrentUserContext } from "@/lib/auth";
 import { INTERACTION_LABELS } from "@/lib/constants";
+import { deriveCompactFitLabel } from "@/lib/fit-labels";
 import {
   getLibraryWorkspace,
   LIBRARY_COLLECTION_OPTIONS,
@@ -22,6 +23,8 @@ const COLLECTION_LABELS: Record<LibraryCollection, string> = {
   LIKE: INTERACTION_LABELS.LIKE,
   DISLIKE: INTERACTION_LABELS.DISLIKE,
   HIDE: INTERACTION_LABELS.HIDE,
+  shared_group: "Shared for this group",
+  shared_household: "Shared for household",
 };
 
 const FOCUS_LABELS: Record<LibraryFocus, string> = {
@@ -206,18 +209,33 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
                     title={item.title}
                     activeTypes={item.activeTypes}
                     actingUserId={
-                      section.actionMode === "solo_full"
+                      section.actionMode === "solo_full" ||
+                      section.actionMode === "shared_only"
                         ? workspace.actingUserId ?? undefined
                         : undefined
                     }
                     activeGroupWatch={item.activeGroupWatch}
-                    showGroupWatchAction={section.actionMode === "group_watch"}
-                    showSoloWatchedAction={section.actionMode === "solo_full"}
+                    sharedWatchlistState={item.sharedWatchlistState}
+                    showGroupWatchAction={
+                      section.actionMode === "group_watch" ||
+                      section.actionMode === "shared_group"
+                    }
+                    showGroupSaveAction={section.showGroupSaveAction}
+                    showHouseholdSaveAction={section.showHouseholdSaveAction}
+                    showSoloWatchedAction={
+                      section.actionMode === "solo_full" ||
+                      section.actionMode === "shared_only"
+                    }
                     showPreferenceActions={section.actionMode === "solo_full"}
                     showActions={section.actionMode !== "none"}
                     recommendationExplanations={item.explanations}
                     recommendationContextLabel={workspace.contextLabel}
                     recommendationBadges={item.badges}
+                    fitSummaryLabel={deriveCompactFitLabel({
+                      explanations: item.explanations,
+                      isGroupMode: workspace.isGroupMode,
+                      contextLabel: workspace.contextLabel,
+                    })}
                   />
                 ))}
               </div>

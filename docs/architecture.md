@@ -27,8 +27,11 @@ Core technologies:
 - Services for household/group management
 - Catalog services that abstract TMDb
 - Interaction services for watchlist and taste signals
+- Shared-watchlist services for collaborative planning intent
 - Recommendation services for solo and group modes
 - Library workspace services that reuse recommendation, provider, and interaction signals
+- Title-fit services that derive cross-user comparison and conflict summaries from existing state
+- Activity services that emit and read household-safe collaborative history
 
 ### Data Layer
 
@@ -65,6 +68,24 @@ Stale or invalid saved contexts are normalized back to a safe solo fallback befo
 ### Group Watch Sessions Stay Separate
 
 ScreenLantern models shared watching as a dedicated `GroupWatchSession`, not as a batch write of personal `WATCHED` interactions. This keeps solo taste and shared history separable while still giving recommendation services a structured shared-watch signal.
+
+### Shared Watchlist Intent Stays Separate
+
+Collaborative planning is modeled separately from both personal watchlists and group watch history.
+
+- personal `WATCHLIST` interactions remain user-owned taste and library state
+- `SharedWatchlistEntry` stores explicit planning intent for either an exact group context or the full household
+- shared saves record who saved the title and which context the title was saved for
+- shared saves can influence group resurfacing, reminders, and Library sections without becoming personal likes, dislikes, or watched history
+
+### Household Activity Stays Explicitly Shared
+
+The household activity feed only records events that were already intentionally shared or governance-relevant.
+
+- activity rows are written from existing business flows such as shared saves, group watch sessions, invites, owner transfer, and member removal
+- private solo interactions such as personal watchlist saves, likes, dislikes, hides, and solo watched history never emit household activity
+- the feed is household-scoped, server-filtered, and readable, not a compliance-grade audit trail
+- title-linked events can reuse existing title detail routes rather than duplicating navigation logic
 
 ### Fresh User Context Over Session Claims
 
@@ -103,12 +124,15 @@ This keeps recommendation transparency close to the scoring rules and makes the 
 Home resurfacing lanes are built as a lightweight extension of the recommendation service instead of a separate notification system.
 
 - solo mode uses the active profile's watchlist
-- group mode uses the union of watchlists from the selected members
+- group mode uses:
+  - the union of personal watchlists from the selected members
+  - exact-group shared watchlist entries
+  - household-shared watchlist entries
 - exact current-group watch history suppresses stale group rewatches
 - selected-service availability can promote a title into the `Available now on your services` lane
 - unknown provider data never becomes a positive availability signal
 
-This keeps resurfacing deterministic, explainable, and reusable for future notification work without introducing shared watchlist state or background jobs in MVP.
+This keeps resurfacing deterministic, explainable, and reusable for future notification work without creating a second recommendation engine or background system.
 
 ### Reminder Inbox as a Persisted Context Layer
 
@@ -121,17 +145,41 @@ ScreenLantern stores lightweight reminder rows per signed-in user and recommenda
 
 This keeps reminders explainable, avoids duplicate logic, and creates a future-friendly bridge toward push or email delivery without implementing external delivery in MVP.
 
+### Reminder Preferences Stay User-Owned
+
+Reminder tuning is stored per signed-in user in a small one-to-one preference record rather than as a shared household setting.
+
+- users can enable or disable reminder categories independently
+- solo and group reminder generation can be turned on or off separately
+- reminder pace controls how many softer resurfacing reminders survive after higher-value `available_now` items
+- dismissed-reminder reappearance is handled as a simple fixed-cooldown policy instead of a general-purpose rules engine
+
+This keeps reminder control household-safe, deterministic, and easy to extend without introducing background infrastructure or shared governance complexity.
+
 ### Library Intelligence Reuses Existing Signals
 
 The Library decision workspace is intentionally assembled from existing domain signals instead of introducing a separate ranking system or new persistence model.
 
 - watchlist candidate sections reuse the watchlist resurfacing snapshot
+- shared Library sections reuse the same persisted shared-watchlist entries used by detail pages and group resurfacing
 - provider-aware badges reuse the same selected-service availability classification used on Home and in reminders
 - solo sections reuse personal interaction state for quick triage actions
 - group sections reuse exact-group watch-session state to suppress stale shared picks
 - group Library actions stay narrower than solo actions so shared decision-making does not silently mutate every participant's personal taste profile
 
 This keeps the Library explainable, context-aware, and lightweight while preserving a clean path toward future reminder tuning or notification delivery.
+
+### Cross-User Fit Summaries Stay Derived
+
+Title-fit transparency is intentionally assembled from existing state instead of creating a new persisted comparison or analytics model.
+
+- personal interactions provide direct signals such as watchlist, like, dislike, hide, and watched
+- group watch sessions provide exact watched-together truth for the active participant set
+- shared watchlist entries explain collaborative planning intent for the active group or household
+- existing solo recommendation heuristics are reused per household member to classify lightweight fit states such as `Already likes it`, `Could work well`, or `Potential conflict`
+- title-detail summaries collapse those signals into non-technical copy such as `Best fit`, `Good shared fit`, `Safe compromise`, `Mixed fit`, or `Watched together`
+
+This keeps “who is this best for?” honest, deterministic, and reusable without adding a separate scoring store or debug dashboard.
 
 ## Request Flows
 
@@ -183,6 +231,14 @@ This keeps the Library explainable, context-aware, and lightweight while preserv
 3. Interaction service upserts the user-title interaction set.
 4. Recommendation profile and cached counts are refreshed on read, not via background jobs in MVP.
 
+### Shared Watchlist Flow
+
+1. User opens title detail or a Library card in a valid solo or group context.
+2. Shared-save mutation validates the signed-in user and optional acting profile against the same household.
+3. `Save for current group` re-resolves the persisted active group context on the server and derives an exact participant-set context.
+4. `Save for household` stores a household-scoped planning row.
+5. Shared rows persist who saved the title, the scope, the context label, and any saved-group reference without mutating personal taste rows.
+
 ### Group Recommendation Flow
 
 1. User selects a household group or ad hoc member combination.
@@ -197,38 +253,59 @@ This keeps the Library explainable, context-aware, and lightweight while preserv
 
 1. Home loads the resolved active recommendation context.
 2. Recommendation services collect watchlist interactions for the active solo user or selected group members.
-3. Cached `TitleCache` rows are mapped back into normalized titles.
-4. Provider freshness is checked on demand for those watchlist titles:
+3. In group mode, the service also loads explicit shared watchlist entries for the exact current group and the household.
+4. Cached `TitleCache` rows are mapped back into normalized titles.
+5. Provider freshness is checked on demand for those watchlist titles:
    - recent provider snapshots are reused
    - stale watchlist titles refresh provider availability before lane scoring
-5. Resurfacing scoring suppresses hidden, disliked, already-watched, and exact-group-watched titles.
-6. Titles with known selected-service availability populate the `Available now on your services` lane first.
-7. Remaining qualifying watchlist titles can appear in `Back on your radar` with watchlist-aware explanation copy.
+6. Resurfacing scoring suppresses hidden, disliked, already-watched, and exact-group-watched titles.
+7. Titles with known selected-service availability populate the `Available now on your services` lane first.
+8. Remaining qualifying titles can appear in `Back on your radar` with explanation copy that distinguishes personal watchlist intent from group-shared or household-shared planning.
 
 ### Reminder Generation Flow
 
 1. The protected shell badge or reminders page requests reminders for the current active context.
 2. The server resolves a valid household-scoped solo or group context.
-3. The watchlist resurfacing snapshot is regenerated on demand using the existing provider freshness rules.
-4. Candidate reminders are mapped into categories:
+3. The signed-in user's reminder preferences are loaded.
+4. The watchlist resurfacing snapshot is regenerated on demand using the existing provider freshness rules.
+5. Candidate reminders are mapped into categories:
    - `available_now`
    - `watchlist_resurface`
    - `group_watch_candidate`
-5. Reminder rows are upserted per user and context, while stale reminder rows for that same context are deactivated.
-6. Read and dismissed state stay on the persisted reminder row and do not mutate the underlying watchlist interaction.
+6. Category toggles, solo/group toggles, and reminder pace filter the candidate set before reminder rows are written.
+7. Reminder rows are upserted per user and context, while stale reminder rows for that same context are deactivated.
+8. Read state stays read unless a reminder changes materially enough to feel new again.
+9. Dismissed reminders stay inactive unless reappearance is enabled and the fixed cooldown has elapsed.
 
 ### Library Workspace Flow
 
 1. Library page loads the resolved active recommendation context for the signed-in user.
 2. The Library service reuses the watchlist resurfacing snapshot to build smart sections such as `Available now`, `Best from your watchlist`, `Good for this group`, and `Recently saved`.
-3. Provider availability is refreshed on demand with the existing title-cache freshness rules.
-4. Library items are labeled as:
+3. Shared-watchlist services also load `Shared for this group` and `Shared for household` collections where relevant.
+4. Provider availability is refreshed on demand with the existing title-cache freshness rules.
+5. Library items are labeled as:
    - `Available now`
    - `Available elsewhere`
    - `Provider status unknown`
-5. Solo Library sections resolve quick triage actions against the selected solo profile, not just the signed-in account.
-6. Group Library decision sections allow explicit `Watched by current group`, while exact-group watched history is shown separately and removed from fresh-candidate sections.
-7. Focus filters and sort modes are applied server-side so the page stays deterministic and context-correct across refreshes.
+6. Solo Library sections resolve quick triage actions against the selected solo profile, not just the signed-in account.
+7. Group Library decision sections allow explicit `Watched by current group`, while exact-group watched history is shown separately and removed from fresh-candidate sections.
+8. Focus filters and sort modes are applied server-side so the page stays deterministic and context-correct across refreshes.
+
+### Title Fit Summary Flow
+
+1. Title detail resolves the authenticated user and a valid household-scoped recommendation context.
+2. The title-fit service loads existing household-safe signals for the requested title:
+   - personal interactions for household members
+   - shared watchlist entries for the active group and household
+   - group watch sessions for watched-together history
+   - existing solo taste-profile heuristics for each member
+3. Each household member receives a concise derived fit state such as `Already likes it`, `Saved it personally`, `Could work well`, or `Potential conflict`.
+4. The active solo or group context is summarized into non-technical fit copy such as:
+   - `Best fit for Brendan`
+   - `Good shared fit for Brendan + Palmer`
+   - `Mixed fit for Brendan + Katie`
+   - `Brendan + Palmer already watched this together`
+5. Detail pages render the richer fit summary and household rows, while Home and Library cards can reuse a smaller fit label derived from the same explanation primitives.
 
 ### Recommendation Context Flow
 
@@ -246,18 +323,31 @@ This keeps the Library explainable, context-aware, and lightweight while preserv
 4. The app stores a `GroupWatchSession` keyed to the title and exact participant set.
 5. Personal `WATCHED` interactions remain unchanged unless a user separately chooses “Watched by me”.
 
+### Household Activity Flow
+
+1. A shared or governance mutation succeeds inside an existing service flow.
+2. That same server-side flow emits a household activity row in the same transaction where practical.
+3. The activity row stores household, actor, event type, timestamp, optional title reference, optional context label, and concise summary/detail copy.
+4. The `/app/activity` page resolves the authenticated user's current household and reads only that household's recent activity.
+5. Title-linked events render a link back to title detail so collaborative history stays actionable instead of becoming a dead log.
+
 ## Data Boundaries
 
 - Auth and household authorization are enforced on the server
 - Personal interactions are always tied to a single user
+- Personal watchlist interactions, shared watchlist entries, and group watch sessions are stored as separate state models
 - Group watch sessions are stored separately from personal interactions
+- Cross-user fit summaries are derived on read from existing household-safe state and never persisted as a shared cross-household artifact
 - Saved groups only reference members inside one household
 - Group recommendation runs never overwrite solo user state
-- Group resurfacing uses individual watchlist intent and never creates a shared household watchlist record
+- Group resurfacing can use shared watchlist entries, but those entries never become personal taste writes automatically
 - Reminder rows belong to one signed-in user and one resolved recommendation context
 - Read and dismiss actions only mutate reminder state, not taste or library state
-- Group Library sections never imply a shared household watchlist or shared taste write for all participants
+- Reminder preferences belong only to the signed-in user; there is no shared household reminder policy in MVP
+- Group Library sections never imply a shared taste write for all participants
 - Recommendation explanations are generated in the service layer, not assembled ad hoc in page components
+- Household activity rows belong to one household and only include explicitly shared or governance-relevant events
+- Private personal interactions never appear in the household activity feed unless they were expressed through an already-shared flow
 - Invite creation, revocation, and member removal are owner-only operations in MVP
 - Ownership transfer is owner-only and constrained to another member in the same household
 - TMDb-specific response differences are normalized at the service layer, not in page components
@@ -301,5 +391,7 @@ These functions can later be exposed to an AI planner or chat layer without rewo
 - Rich explanation history views and per-title recommendation trace screens
 - Push, email, or cron-triggered resurfacing notifications
 - Advanced faceted Library search, bulk cleanup tooling, and per-section notification preferences
+- Custom reminder cooldown windows, digest schedules, and per-group reminder policies
 - Multi-owner management, owner-to-owner transfer flows, and invite email delivery
+- Comments, reactions, per-title discussion threads, and richer collaborative activity filtering
 - Group watch-session editing, merge, and duplicate-session management

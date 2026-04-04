@@ -1,5 +1,6 @@
 import {
   RecommendationMode,
+  ReminderAggressiveness,
   ReminderCategory,
   type Prisma,
 } from "@prisma/client";
@@ -17,15 +18,125 @@ import { mapTitleCacheToSummary } from "@/lib/services/title-cache";
 import type {
   RecommendationExplanation,
   RecommendationModeKey,
+  ReminderAggressivenessKey,
   ReminderCategoryKey,
   ReminderInboxResult,
   ReminderItem,
+  ReminderPreferences,
 } from "@/lib/types";
+import { reminderPreferencesSchema } from "@/lib/validations/reminder-preferences";
+
+const MAX_AVAILABLE_NOW_REMINDERS = 4;
+export const DISMISSED_REMINDER_REAPPEAR_COOLDOWN_DAYS = 14;
+
+export const DEFAULT_REMINDER_PREFERENCES: ReminderPreferences = {
+  enableAvailableNow: true,
+  enableWatchlistResurface: true,
+  enableGroupWatchCandidate: true,
+  enableSoloReminders: true,
+  enableGroupReminders: true,
+  aggressiveness: "BALANCED",
+  allowDismissedReappear: false,
+};
 
 function normalizeSelectedUserIds(userIds: string[]) {
   return [...new Set(userIds.filter(Boolean))].sort((left, right) =>
     left.localeCompare(right),
   );
+}
+
+function toReminderAggressivenessKey(
+  value: ReminderAggressiveness,
+): ReminderAggressivenessKey {
+  return value;
+}
+
+function toReminderAggressivenessEnum(
+  value: ReminderAggressivenessKey,
+): ReminderAggressiveness {
+  return value as ReminderAggressiveness;
+}
+
+function mapReminderPreferencesRecord(
+  record:
+    | {
+        enableAvailableNow: boolean;
+        enableWatchlistResurface: boolean;
+        enableGroupWatchCandidate: boolean;
+        enableSoloReminders: boolean;
+        enableGroupReminders: boolean;
+        aggressiveness: ReminderAggressiveness;
+        allowDismissedReappear: boolean;
+      }
+    | null
+    | undefined,
+): ReminderPreferences {
+  if (!record) {
+    return { ...DEFAULT_REMINDER_PREFERENCES };
+  }
+
+  return {
+    enableAvailableNow: record.enableAvailableNow,
+    enableWatchlistResurface: record.enableWatchlistResurface,
+    enableGroupWatchCandidate: record.enableGroupWatchCandidate,
+    enableSoloReminders: record.enableSoloReminders,
+    enableGroupReminders: record.enableGroupReminders,
+    aggressiveness: toReminderAggressivenessKey(record.aggressiveness),
+    allowDismissedReappear: record.allowDismissedReappear,
+  };
+}
+
+export async function getReminderPreferences(args: {
+  userId: string;
+  householdId: string;
+}): Promise<ReminderPreferences> {
+  const record = await prisma.userReminderPreference.findFirst({
+    where: {
+      userId: args.userId,
+      householdId: args.householdId,
+    },
+  });
+
+  return mapReminderPreferencesRecord(record);
+}
+
+export async function updateReminderPreferences(args: {
+  userId: string;
+  householdId: string;
+  preferences: ReminderPreferences;
+}) {
+  const parsed = reminderPreferencesSchema.safeParse(args.preferences);
+
+  if (!parsed.success) {
+    throw new Error("Invalid reminder preferences.");
+  }
+
+  return prisma.userReminderPreference.upsert({
+    where: {
+      userId: args.userId,
+    },
+    update: {
+      householdId: args.householdId,
+      enableAvailableNow: parsed.data.enableAvailableNow,
+      enableWatchlistResurface: parsed.data.enableWatchlistResurface,
+      enableGroupWatchCandidate: parsed.data.enableGroupWatchCandidate,
+      enableSoloReminders: parsed.data.enableSoloReminders,
+      enableGroupReminders: parsed.data.enableGroupReminders,
+      aggressiveness: toReminderAggressivenessEnum(parsed.data.aggressiveness),
+      allowDismissedReappear: parsed.data.allowDismissedReappear,
+    },
+    create: {
+      userId: args.userId,
+      householdId: args.householdId,
+      enableAvailableNow: parsed.data.enableAvailableNow,
+      enableWatchlistResurface: parsed.data.enableWatchlistResurface,
+      enableGroupWatchCandidate: parsed.data.enableGroupWatchCandidate,
+      enableSoloReminders: parsed.data.enableSoloReminders,
+      enableGroupReminders: parsed.data.enableGroupReminders,
+      aggressiveness: toReminderAggressivenessEnum(parsed.data.aggressiveness),
+      allowDismissedReappear: parsed.data.allowDismissedReappear,
+    },
+  });
 }
 
 export function buildReminderContextKey(args: {
@@ -111,6 +222,190 @@ function toReminderModeKey(mode: RecommendationMode) {
   return mode === RecommendationMode.GROUP ? "GROUP" : "SOLO";
 }
 
+export function getSoftReminderLimit(
+  aggressiveness: ReminderAggressivenessKey,
+) {
+  if (aggressiveness === "LIGHT") {
+    return 1;
+  }
+
+  if (aggressiveness === "PROACTIVE") {
+    return 5;
+  }
+
+  return 3;
+}
+
+function reminderCategoryPriority(candidate: WatchlistResurfacingCandidate) {
+  return candidate.laneId === "available_now" ? 2 : 1;
+}
+
+export function dedupeReminderCandidates(
+  candidates: WatchlistResurfacingCandidate[],
+) {
+  const byTitleCacheId = new Map<string, WatchlistResurfacingCandidate>();
+
+  for (const candidate of candidates) {
+    const existing = byTitleCacheId.get(candidate.titleCacheId);
+
+    if (!existing) {
+      byTitleCacheId.set(candidate.titleCacheId, candidate);
+      continue;
+    }
+
+    const candidatePriority = reminderCategoryPriority(candidate);
+    const existingPriority = reminderCategoryPriority(existing);
+
+    if (candidatePriority > existingPriority) {
+      byTitleCacheId.set(candidate.titleCacheId, candidate);
+      continue;
+    }
+
+    if (
+      candidatePriority === existingPriority &&
+      candidate.item.score > existing.item.score
+    ) {
+      byTitleCacheId.set(candidate.titleCacheId, candidate);
+    }
+  }
+
+  return [...byTitleCacheId.values()].sort((left, right) => {
+    const rightPriority = reminderCategoryPriority(right);
+    const leftPriority = reminderCategoryPriority(left);
+
+    if (rightPriority !== leftPriority) {
+      return rightPriority - leftPriority;
+    }
+
+    if (right.item.score !== left.item.score) {
+      return right.item.score - left.item.score;
+    }
+
+    return (
+      new Date(right.latestUpdatedAt).getTime() -
+      new Date(left.latestUpdatedAt).getTime()
+    );
+  });
+}
+
+function isReminderCategoryEnabled(
+  category: ReminderCategory,
+  preferences: ReminderPreferences,
+) {
+  if (category === ReminderCategory.AVAILABLE_NOW) {
+    return preferences.enableAvailableNow;
+  }
+
+  if (category === ReminderCategory.GROUP_WATCH_CANDIDATE) {
+    return preferences.enableGroupWatchCandidate;
+  }
+
+  return preferences.enableWatchlistResurface;
+}
+
+export function selectReminderCandidatesForPreferences(args: {
+  candidates: WatchlistResurfacingCandidate[];
+  preferences: ReminderPreferences;
+  mode: RecommendationModeKey;
+}) {
+  if (
+    (args.mode === "GROUP" && !args.preferences.enableGroupReminders) ||
+    (args.mode === "SOLO" && !args.preferences.enableSoloReminders)
+  ) {
+    return [] as WatchlistResurfacingCandidate[];
+  }
+
+  const isGroupMode = args.mode === "GROUP";
+  const deduped = dedupeReminderCandidates(args.candidates);
+  const filtered = deduped.filter((candidate) =>
+    isReminderCategoryEnabled(
+      mapReminderCategory({
+        laneId: candidate.laneId,
+        isGroupMode,
+      }),
+      args.preferences,
+    ),
+  );
+  const softLimit = getSoftReminderLimit(args.preferences.aggressiveness);
+  const availableNow = filtered
+    .filter((candidate) => candidate.laneId === "available_now")
+    .slice(0, MAX_AVAILABLE_NOW_REMINDERS);
+  const softerResurfacing = filtered
+    .filter((candidate) => candidate.laneId !== "available_now")
+    .slice(0, softLimit);
+
+  return [...availableNow, ...softerResurfacing];
+}
+
+export function shouldReactivateDismissedReminder(args: {
+  dismissedAt?: Date | null;
+  allowDismissedReappear: boolean;
+  now?: Date;
+}) {
+  if (!args.dismissedAt || !args.allowDismissedReappear) {
+    return false;
+  }
+
+  const now = args.now ?? new Date();
+  const availableAt = new Date(args.dismissedAt);
+  availableAt.setDate(
+    availableAt.getDate() + DISMISSED_REMINDER_REAPPEAR_COOLDOWN_DAYS,
+  );
+
+  return now.getTime() >= availableAt.getTime();
+}
+
+function buildReminderTuningNote(args: {
+  preferences: ReminderPreferences;
+  mode: RecommendationModeKey;
+  hasItems: boolean;
+}) {
+  if (args.mode === "GROUP" && !args.preferences.enableGroupReminders) {
+    return "Group reminders are turned off in Settings.";
+  }
+
+  if (args.mode === "SOLO" && !args.preferences.enableSoloReminders) {
+    return "Solo reminders are turned off in Settings.";
+  }
+
+  const relevantCategories =
+    args.mode === "GROUP"
+      ? [
+          args.preferences.enableAvailableNow,
+          args.preferences.enableGroupWatchCandidate,
+        ]
+      : [
+          args.preferences.enableAvailableNow,
+          args.preferences.enableWatchlistResurface,
+        ];
+
+  if (relevantCategories.every((value) => !value)) {
+    return "The reminder categories for this view are turned off in Settings.";
+  }
+
+  if (!args.hasItems && relevantCategories.some((value) => !value)) {
+    return "This inbox is quieter because some reminder categories are turned off in Settings.";
+  }
+
+  if (args.preferences.aggressiveness === "LIGHT") {
+    return "Reminder tuning is set to Light, so softer watchlist nudges stay limited.";
+  }
+
+  return null;
+}
+
+function hasMaterialReminderChange(args: {
+  existingSummary: string;
+  existingDetail: string | null;
+  nextSummary: string;
+  nextDetail: string | null;
+}) {
+  return (
+    args.existingSummary !== args.nextSummary ||
+    args.existingDetail !== args.nextDetail
+  );
+}
+
 export function buildReminderDraft(args: {
   candidate: WatchlistResurfacingCandidate;
   contextLabel: string;
@@ -189,27 +484,31 @@ async function syncRemindersForContext(args: {
   savedGroupId: string | null;
   activeNames: string[];
   isGroupMode: boolean;
+  preferences: ReminderPreferences;
 }) {
   const resurfacing = await getWatchlistResurfacingSnapshot({
     userIds: args.selectedUserIds,
     householdId: args.householdId,
+    maxPerLane: 8,
   });
   const contextLabel = buildReminderContextLabel(
     args.activeNames,
     args.isGroupMode,
   );
-  const drafts = resurfacing.candidates
-    .slice(0, 8)
-    .map((candidate) =>
-      buildReminderDraft({
-        candidate,
-        contextLabel,
-        mode: args.mode,
-        selectedUserIds: args.selectedUserIds,
-        savedGroupId: args.savedGroupId,
-        isGroupMode: args.isGroupMode,
-      }),
-    );
+  const drafts = selectReminderCandidatesForPreferences({
+    candidates: resurfacing.candidates,
+    preferences: args.preferences,
+    mode: args.mode,
+  }).map((candidate) =>
+    buildReminderDraft({
+      candidate,
+      contextLabel,
+      mode: args.mode,
+      selectedUserIds: args.selectedUserIds,
+      savedGroupId: args.savedGroupId,
+      isGroupMode: args.isGroupMode,
+    }),
+  );
   const contextKey = buildReminderContextKey({
     mode: args.mode,
     selectedUserIds: args.selectedUserIds,
@@ -223,6 +522,9 @@ async function syncRemindersForContext(args: {
       id: true,
       category: true,
       titleCacheId: true,
+      summary: true,
+      detail: true,
+      readAt: true,
       dismissedAt: true,
     },
   });
@@ -242,30 +544,73 @@ async function syncRemindersForContext(args: {
       const existingReminder = existingByKey.get(draftKey);
 
       if (existingReminder) {
+        const shouldReactivate = shouldReactivateDismissedReminder({
+          dismissedAt: existingReminder.dismissedAt,
+          allowDismissedReappear: args.preferences.allowDismissedReappear,
+        });
+        const materiallyChanged = hasMaterialReminderChange({
+          existingSummary: existingReminder.summary,
+          existingDetail: existingReminder.detail,
+          nextSummary: draft.summary,
+          nextDetail: draft.detail,
+        });
+        const data: Prisma.UserReminderUncheckedUpdateInput = {
+          householdId: args.householdId,
+          mode:
+            args.mode === "GROUP"
+              ? RecommendationMode.GROUP
+              : RecommendationMode.SOLO,
+          contextLabel,
+          selectedUserIds: draft.selectedUserIds,
+          savedGroupId: draft.savedGroupId,
+          summary: draft.summary,
+          detail: draft.detail,
+          explanationJson:
+            draft.explanations as unknown as Prisma.InputJsonValue,
+          isActive: shouldReactivate ? true : existingReminder.dismissedAt ? false : true,
+        };
+
+        if (shouldReactivate) {
+          data.dismissedAt = null;
+          data.readAt = null;
+        } else if (existingReminder.readAt && materiallyChanged) {
+          data.readAt = null;
+        }
+
         await tx.userReminder.update({
           where: {
             id: existingReminder.id,
           },
-          data: {
-            householdId: args.householdId,
-            mode:
-              args.mode === "GROUP"
-                ? RecommendationMode.GROUP
-                : RecommendationMode.SOLO,
-            contextLabel,
-            selectedUserIds: draft.selectedUserIds,
-            savedGroupId: draft.savedGroupId,
-            summary: draft.summary,
-            detail: draft.detail,
-            explanationJson: draft.explanations as unknown as Prisma.InputJsonValue,
-            isActive: existingReminder.dismissedAt ? false : true,
-          },
+          data,
         });
         continue;
       }
 
-      await tx.userReminder.create({
-        data: {
+      await tx.userReminder.upsert({
+        where: {
+          userId_contextKey_category_titleCacheId: {
+            userId: args.userId,
+            contextKey,
+            category: draft.category,
+            titleCacheId: draft.titleCacheId,
+          },
+        },
+        update: {
+          householdId: args.householdId,
+          mode:
+            args.mode === "GROUP"
+              ? RecommendationMode.GROUP
+              : RecommendationMode.SOLO,
+          contextLabel,
+          selectedUserIds: draft.selectedUserIds,
+          savedGroupId: draft.savedGroupId,
+          summary: draft.summary,
+          detail: draft.detail,
+          explanationJson:
+            draft.explanations as unknown as Prisma.InputJsonValue,
+          isActive: true,
+        },
+        create: {
           userId: args.userId,
           householdId: args.householdId,
           titleCacheId: draft.titleCacheId,
@@ -350,6 +695,10 @@ export async function getReminderInbox(args: {
     requestedUserIds: args.requestedUserIds,
     requestedSavedGroupId: args.requestedSavedGroupId,
   });
+  const preferences = await getReminderPreferences({
+    userId: args.userId,
+    householdId: args.householdId,
+  });
   const contextKey = buildReminderContextKey({
     mode: context.mode,
     selectedUserIds: context.selectedUserIds,
@@ -364,6 +713,7 @@ export async function getReminderInbox(args: {
       savedGroupId: context.savedGroupId,
       activeNames: context.activeNames,
       isGroupMode: context.isGroupMode,
+      preferences,
     });
   }
 
@@ -391,6 +741,11 @@ export async function getReminderInbox(args: {
       isGroupMode: context.isGroupMode,
       unreadCount,
       items: [],
+      tuningNote: buildReminderTuningNote({
+        preferences,
+        mode: context.mode,
+        hasItems: unreadCount > 0,
+      }),
     };
   }
 
@@ -411,6 +766,11 @@ export async function getReminderInbox(args: {
     isGroupMode: context.isGroupMode,
     unreadCount,
     items: reminders.map(mapReminderRecordToItem),
+    tuningNote: buildReminderTuningNote({
+      preferences,
+      mode: context.mode,
+      hasItems: reminders.length > 0,
+    }),
   };
 }
 

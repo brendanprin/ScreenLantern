@@ -12,7 +12,9 @@ interface NavLinkProps {
 
 export function NavLink({ href, label }: NavLinkProps) {
   const pathname = usePathname();
-  const isActive = pathname === href || pathname.startsWith(`${href}/`);
+  const safePathname = pathname ?? "";
+  const isActive =
+    safePathname === href || safePathname.startsWith(`${href}/`);
 
   return (
     <Link
@@ -28,4 +30,3 @@ export function NavLink({ href, label }: NavLinkProps) {
     </Link>
   );
 }
-

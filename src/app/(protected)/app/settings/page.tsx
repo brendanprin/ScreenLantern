@@ -1,11 +1,20 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProviderPreferencesForm } from "@/components/settings/provider-preferences-form";
+import { ReminderPreferencesForm } from "@/components/settings/reminder-preferences-form";
 import { getCurrentUserContext } from "@/lib/auth";
 import { getProviderOptions } from "@/lib/services/catalog";
+import {
+  DISMISSED_REMINDER_REAPPEAR_COOLDOWN_DAYS,
+  getReminderPreferences,
+} from "@/lib/services/reminders";
 
 export default async function SettingsPage() {
   const user = await getCurrentUserContext();
   const providerOptions = await getProviderOptions("all");
+  const reminderPreferences = await getReminderPreferences({
+    userId: user.userId,
+    householdId: user.householdId,
+  });
   const selectedProviders = [...new Set([...user.preferredProviders, ...providerOptions])].sort(
     (left, right) => left.localeCompare(right),
   );
@@ -25,6 +34,10 @@ export default async function SettingsPage() {
       <ProviderPreferencesForm
         providerOptions={selectedProviders}
         selectedProviders={user.preferredProviders}
+      />
+      <ReminderPreferencesForm
+        initialPreferences={reminderPreferences}
+        cooldownDays={DISMISSED_REMINDER_REAPPEAR_COOLDOWN_DAYS}
       />
     </div>
   );

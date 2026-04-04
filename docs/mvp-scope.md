@@ -29,8 +29,12 @@
 - Recommendation explanation surfacing on the main Home / For You feed
 - Watchlist resurfacing lanes for `Available now on your services` and `Back on your radar`
 - In-app reminders inbox with read/dismiss state for current-context resurfaced titles
+- Reminder preferences for category toggles, solo/group gating, resurfacing pace, and dismissed-reminder reappearance
 - Context-aware Library decision workspace with smart sections, provider-aware badges, lightweight filters, and quick triage actions
+- Shared watchlist semantics for personal, group, and household planning intent
 - Group watch-session modeling separate from personal watched history
+- Cross-user fit summaries and household signal rows on title detail
+- Household activity/history feed for collaborative planning and governance events
 - Provider preference settings
 
 ### Quality
@@ -52,12 +56,15 @@
 - Background TMDb refresh jobs and sophisticated cache invalidation
 - Push or email notifications for watchlist availability changes
 - Background or scheduled reminder generation infrastructure
+- Shared household reminder settings, digest schedules, and custom cooldown controls
+- Shared-watchlist comments, reactions, or chat-style collaboration
+- Activity reactions, comments, per-title discussion threads, and richer activity filtering
 - Cross-region provider reconciliation beyond one configured watch region
 - Advanced faceted Library search and bulk cleanup workflows
 - AI chat assistant
 - Native apps
 - Offline mode
-- Group watch-session editing, deduplication, and shared activity feed
+- Group watch-session editing and richer shared-history controls
 - Deep recommendation-debug dashboards and explanation timelines
 
 ## MVP Acceptance Definition
@@ -75,8 +82,13 @@ The MVP is considered complete when:
 - Recommendation cards explain why a title was selected without overwhelming the feed
 - Home resurfacing lanes use watchlist and provider signals without treating unknown provider data as a positive match
 - The reminders inbox reuses resurfacing logic and keeps solo and group reminder state distinct
+- Reminder generation respects user-owned category toggles, solo/group settings, and resurfacing pace
 - The Library helps users decide what to watch now with context-aware sections, provider-aware badges, and quick triage actions
 - Group Library views suppress exact-group watched titles from fresh shared-candidate sections
+- Users can intentionally save a title for themself, the active group, or the household without collapsing those states together
+- Group resurfacing and reminders can reuse shared watchlist planning intent with clear context labels
 - Shared watch events can be recorded without rewriting every participant's solo watched history
+- Title detail can explain who a title is best for, where likely group conflict exists, and who already signaled interest without exposing raw scoring math
+- Household members can review recent collaborative saves, watched-together moments, invite events, and governance changes in a household-safe activity feed
 - The repository contains product, architecture, and roadmap documentation
 - The ticket breakdown is detailed enough to manage follow-on work

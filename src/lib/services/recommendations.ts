@@ -7,6 +7,7 @@ import {
 } from "@/lib/services/catalog";
 import { getGroupWatchedTmdbKeys } from "@/lib/services/group-watch-sessions";
 import { getInteractionsForTaste } from "@/lib/services/interactions";
+import { buildSharedWatchlistContextKey } from "@/lib/services/shared-watchlist";
 import { mapTitleCacheToSummary, toTmdbKey } from "@/lib/services/title-cache";
 import type {
   MediaTypeKey,
@@ -16,6 +17,7 @@ import type {
   RecommendationLaneId,
   TasteProfile,
   TitleSummary,
+  WatchlistResurfaceSource,
 } from "@/lib/types";
 
 type RecommendationModeShape = "solo" | "group";
@@ -32,6 +34,8 @@ export interface WatchlistResurfacingCandidate {
   availabilityMatch: SelectedServiceAvailability;
   latestUpdatedAt: string;
   savedByNames: string[];
+  savedContextLabel?: string | null;
+  source: WatchlistResurfaceSource;
 }
 
 function runtimeBand(runtimeMinutes?: number | null) {
@@ -491,6 +495,8 @@ export function buildWatchlistResurfacingExplanations(args: {
   mode: RecommendationModeShape;
   activeNames: string[];
   savedByNames: string[];
+  source: WatchlistResurfaceSource;
+  savedContextLabel?: string | null;
   availabilityMatch: SelectedServiceAvailability;
   matchedGenres: string[];
   matchedSharedGenres: string[];
@@ -502,10 +508,8 @@ export function buildWatchlistResurfacingExplanations(args: {
     args.mode === "group" && args.activeNames.length > 0
       ? formatList(args.activeNames)
       : "this group";
-  const savedByLabel =
-    args.mode === "group" && args.savedByNames.length > 0
-      ? formatList(args.savedByNames)
-      : null;
+  const savedByLabel = args.savedByNames.length > 0 ? formatList(args.savedByNames) : null;
+  const sharedContextLabel = args.savedContextLabel ?? namesLabel;
 
   addExplanation(explanations, {
     category: "watchlist_resurface",
@@ -514,21 +518,41 @@ export function buildWatchlistResurfacingExplanations(args: {
         ? args.availabilityMatch === "selected_services"
           ? "Saved to your watchlist and available on your services"
           : "Back on your radar from your watchlist"
-        : args.availabilityMatch === "selected_services"
-          ? savedByLabel
-            ? `Saved by ${savedByLabel} and available for ${namesLabel} now`
-            : `Available for ${namesLabel} now`
-          : savedByLabel
-            ? `Saved by ${savedByLabel} for ${namesLabel}`
-            : `Back on ${namesLabel}'s radar`,
+        : args.source === "shared_group"
+          ? args.availabilityMatch === "selected_services"
+            ? `Saved for ${sharedContextLabel} and available now`
+            : `Saved for ${sharedContextLabel}`
+          : args.source === "shared_household"
+            ? args.availabilityMatch === "selected_services"
+              ? savedByLabel
+                ? `Saved by ${savedByLabel} for the household and available for ${namesLabel} now`
+                : `Saved for the household and available for ${namesLabel} now`
+              : savedByLabel
+                ? `Saved by ${savedByLabel} for the household`
+                : "Saved for the household"
+            : args.availabilityMatch === "selected_services"
+              ? savedByLabel
+                ? `Saved by ${savedByLabel} and available for ${namesLabel} now`
+                : `Available for ${namesLabel} now`
+              : savedByLabel
+                ? `Saved by ${savedByLabel} for ${namesLabel}`
+                : `Back on ${namesLabel}'s radar`,
     detail:
       args.mode === "solo"
         ? args.availabilityMatch === "selected_services"
           ? "It is currently practical to start from the services tied to this profile."
           : "You already saved it, and it still lines up with the shape of your current picks."
-        : savedByLabel
-          ? `${savedByLabel} already saved this, so it is worth bringing back into the room conversation.`
-          : "It is already in this group's orbit, so ScreenLantern is bringing it back into view.",
+        : args.source === "shared_group"
+          ? savedByLabel
+            ? `${savedByLabel} added this to the shared watchlist for ${sharedContextLabel}.`
+            : "This title is already on the shared watchlist for the active group."
+          : args.source === "shared_household"
+            ? savedByLabel
+              ? `${savedByLabel} added this to the household shared watchlist, and it still looks practical for ${namesLabel}.`
+              : "This title is already on the household shared watchlist and still fits the active group."
+            : savedByLabel
+              ? `${savedByLabel} already saved this, so it is worth bringing back into the room conversation.`
+              : "It is already in this group's orbit, so ScreenLantern is bringing it back into view.",
   });
 
   const tasteExplanations = buildRecommendationExplanations({
@@ -561,6 +585,9 @@ export function scoreWatchlistResurfacingCandidate(args: {
   mode: RecommendationModeShape;
   activeNames: string[];
   savedByNames: string[];
+  saverCount: number;
+  source: WatchlistResurfaceSource;
+  savedContextLabel?: string | null;
   sharedGenres?: string[];
   currentContextWatched: boolean;
   groupWatchedBefore: boolean;
@@ -591,7 +618,13 @@ export function scoreWatchlistResurfacingCandidate(args: {
     args.profile.preferredProviders,
   );
 
-  let score = 48 + Math.min(args.savedByNames.length, 3) * 8;
+  let score = 48 + Math.min(args.saverCount, 3) * 8;
+
+  if (args.source === "shared_group") {
+    score += 16;
+  } else if (args.source === "shared_household") {
+    score += 8;
+  }
 
   if (matchedGenres.length > 0) {
     score += matchedGenres.reduce((sum, entry) => sum + entry.weight * 5, 0);
@@ -633,6 +666,8 @@ export function scoreWatchlistResurfacingCandidate(args: {
       mode: args.mode,
       activeNames: args.activeNames,
       savedByNames: args.savedByNames,
+      source: args.source,
+      savedContextLabel: args.savedContextLabel,
       availabilityMatch,
       matchedGenres: matchedGenres.map((entry) => entry.genre),
       matchedSharedGenres,
@@ -824,19 +859,15 @@ async function buildWatchlistResurfacingSnapshot(args: {
     take: 40,
   });
 
-  if (watchlistInteractions.length === 0) {
-    return {
-      lanes: [] as RecommendationLane[],
-      candidates: [] as WatchlistResurfacingCandidate[],
-    };
-  }
-
   const grouped = new Map<
     string,
     {
       titleCacheId: string;
       title: TitleSummary;
-      savedByNames: Set<string>;
+      personalSavedByNames: Set<string>;
+      sharedGroupSavedByNames: Set<string>;
+      householdSavedByNames: Set<string>;
+      sharedContextLabel: string | null;
       latestUpdatedAt: Date;
     }
   >();
@@ -847,7 +878,7 @@ async function buildWatchlistResurfacingSnapshot(args: {
     const existing = grouped.get(key);
 
     if (existing) {
-      existing.savedByNames.add(interaction.user.name);
+      existing.personalSavedByNames.add(interaction.user.name);
 
       if (interaction.updatedAt > existing.latestUpdatedAt) {
         existing.latestUpdatedAt = interaction.updatedAt;
@@ -859,10 +890,90 @@ async function buildWatchlistResurfacingSnapshot(args: {
     grouped.set(key, {
       titleCacheId: interaction.title.id,
       title,
-      savedByNames: new Set([interaction.user.name]),
+      personalSavedByNames: new Set([interaction.user.name]),
+      sharedGroupSavedByNames: new Set<string>(),
+      householdSavedByNames: new Set<string>(),
+      sharedContextLabel: null,
       latestUpdatedAt: interaction.updatedAt,
     });
   });
+
+  if (args.mode === "group") {
+    const groupContextKey = buildSharedWatchlistContextKey({
+      scope: "GROUP",
+      householdId: args.householdId,
+      selectedUserIds: args.userIds,
+    });
+    const householdContextKey = buildSharedWatchlistContextKey({
+      scope: "HOUSEHOLD",
+      householdId: args.householdId,
+    });
+    const sharedEntries = await prisma.sharedWatchlistEntry.findMany({
+      where: {
+        householdId: args.householdId,
+        contextKey: {
+          in: [groupContextKey, householdContextKey],
+        },
+      },
+      include: {
+        title: true,
+        savedBy: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+      take: 40,
+    });
+
+    sharedEntries.forEach((entry) => {
+      const title = mapTitleCacheToSummary(entry.title as never);
+      const key = toTmdbKey(title.tmdbId, title.mediaType);
+      const existing = grouped.get(key);
+
+      if (existing) {
+        if (entry.contextKey === groupContextKey) {
+          existing.sharedGroupSavedByNames.add(entry.savedBy.name);
+          existing.sharedContextLabel = entry.contextLabel;
+        } else {
+          existing.householdSavedByNames.add(entry.savedBy.name);
+        }
+
+        if (entry.updatedAt > existing.latestUpdatedAt) {
+          existing.latestUpdatedAt = entry.updatedAt;
+        }
+
+        return;
+      }
+
+      grouped.set(key, {
+        titleCacheId: entry.title.id,
+        title,
+        personalSavedByNames: new Set<string>(),
+        sharedGroupSavedByNames:
+          entry.contextKey === groupContextKey
+            ? new Set([entry.savedBy.name])
+            : new Set<string>(),
+        householdSavedByNames:
+          entry.contextKey === householdContextKey
+            ? new Set([entry.savedBy.name])
+            : new Set<string>(),
+        sharedContextLabel: entry.contextKey === groupContextKey ? entry.contextLabel : null,
+        latestUpdatedAt: entry.updatedAt,
+      });
+    });
+  }
+
+  if (grouped.size === 0) {
+    return {
+      lanes: [] as RecommendationLane[],
+      candidates: [] as WatchlistResurfacingCandidate[],
+    };
+  }
+
   const maxPerLane = args.maxPerLane ?? 4;
 
   const hydratedTitles = await hydrateProvidersForTitles(
@@ -878,9 +989,33 @@ async function buildWatchlistResurfacingSnapshot(args: {
   const ranked = [...grouped.entries()]
     .map(([key, candidate]) => {
       const title = hydratedByKey.get(key) ?? candidate.title;
-      const savedByNames = [...candidate.savedByNames].sort((left, right) =>
-        left.localeCompare(right),
+      const allSavedByNames = [
+        ...new Set([
+          ...candidate.personalSavedByNames,
+          ...candidate.sharedGroupSavedByNames,
+          ...candidate.householdSavedByNames,
+        ]),
+      ].sort((left, right) => left.localeCompare(right));
+      const groupSharedSavedByNames = [...candidate.sharedGroupSavedByNames].sort(
+        (left, right) => left.localeCompare(right),
       );
+      const householdSavedByNames = [...candidate.householdSavedByNames].sort(
+        (left, right) => left.localeCompare(right),
+      );
+      const displaySavedByNames =
+        groupSharedSavedByNames.length > 0
+          ? groupSharedSavedByNames
+          : householdSavedByNames.length > 0
+            ? householdSavedByNames
+            : [...candidate.personalSavedByNames].sort((left, right) =>
+                left.localeCompare(right),
+              );
+      const source: WatchlistResurfaceSource =
+        groupSharedSavedByNames.length > 0
+          ? "shared_group"
+          : householdSavedByNames.length > 0
+            ? "shared_household"
+            : "personal";
 
       return {
         titleCacheId: candidate.titleCacheId,
@@ -889,7 +1024,11 @@ async function buildWatchlistResurfacingSnapshot(args: {
           profile: args.profile,
           mode: args.mode,
           activeNames: args.activeNames,
-          savedByNames,
+          savedByNames: displaySavedByNames,
+          saverCount: allSavedByNames.length,
+          source,
+          savedContextLabel:
+            source === "shared_group" ? candidate.sharedContextLabel : null,
           sharedGenres: args.sharedGenres,
           currentContextWatched:
             args.mode === "solo" ? args.profile.watchedTmdbKeys.includes(key) : false,
@@ -897,7 +1036,10 @@ async function buildWatchlistResurfacingSnapshot(args: {
             args.mode === "group" ? args.groupWatchedKeys.has(key) : false,
         }),
         latestUpdatedAt: candidate.latestUpdatedAt,
-        savedByNames,
+        savedByNames: displaySavedByNames,
+        savedContextLabel:
+          source === "shared_group" ? candidate.sharedContextLabel : null,
+        source,
         availabilityMatch: classifySelectedServiceAvailability(
           title,
           args.profile.preferredProviders,
@@ -912,6 +1054,8 @@ async function buildWatchlistResurfacingSnapshot(args: {
         item: RecommendationItem;
         latestUpdatedAt: Date;
         savedByNames: string[];
+        savedContextLabel: string | null;
+        source: WatchlistResurfaceSource;
         availabilityMatch: SelectedServiceAvailability;
       } => Boolean(entry.item),
     )
@@ -932,6 +1076,8 @@ async function buildWatchlistResurfacingSnapshot(args: {
       availabilityMatch: entry.availabilityMatch,
       latestUpdatedAt: entry.latestUpdatedAt.toISOString(),
       savedByNames: entry.savedByNames,
+      savedContextLabel: entry.savedContextLabel,
+      source: entry.source,
     }))
     .slice(0, maxPerLane);
   const usedKeys = new Set(
@@ -951,6 +1097,8 @@ async function buildWatchlistResurfacingSnapshot(args: {
       availabilityMatch: entry.availabilityMatch,
       latestUpdatedAt: entry.latestUpdatedAt.toISOString(),
       savedByNames: entry.savedByNames,
+      savedContextLabel: entry.savedContextLabel,
+      source: entry.source,
     }))
     .slice(0, maxPerLane);
 
@@ -962,7 +1110,7 @@ async function buildWatchlistResurfacingSnapshot(args: {
       title: "Available now on your services",
       description:
         args.mode === "group"
-          ? "Saved titles that this active group can actually start from the services already in play."
+          ? "Personal and shared saves that this active group can actually start from the services already in play."
           : "Saved titles that are currently practical to start from the services tied to this profile.",
       items: availableNowItems.map((entry) => entry.item),
     });
@@ -974,7 +1122,7 @@ async function buildWatchlistResurfacingSnapshot(args: {
       title: "Back on your radar",
       description:
         args.mode === "group"
-          ? "Saved titles from the selected members that still fit tonight and have not been watched by this exact group."
+          ? "Shared and personal saves that still fit tonight and have not been watched by this exact group."
           : "Saved titles that still fit this profile and have not been watched here yet.",
       items: backOnRadarItems.map((entry) => entry.item),
     });

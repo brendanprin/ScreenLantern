@@ -30,7 +30,11 @@ The MVP is intentionally focused on discovery, library management, and explainab
 - Recommendation cards with concise explanation reasons plus a lightweight “Why this?” disclosure
 - Home resurfacing lanes for watchlist titles that are back on your radar or available now on your services
 - In-app reminder center for newly available and resurfaced watchlist titles in the current solo or group context
+- Reminder preferences for category toggles, solo/group tuning, resurfacing pace, and dismissed-reminder reappearance
 - Context-aware Library decision workspace with smart sections, provider-aware badges, and quick triage actions
+- Distinct shared watchlist planning for the active group or broader household
+- Cross-user fit summary on title detail plus lightweight “who this is best for” card labels
+- Household activity feed for shared planning, watched-together moments, invites, and governance changes
 - Demo seed data for Brendan, Katie, Palmer, and Geoff
 
 ## Local Setup
@@ -55,6 +59,9 @@ docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403153000_household_roles_and_invites/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403170000_recommendation_context_and_group_watch_sessions/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403190000_user_reminders/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403200000_user_reminder_preferences/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403210000_shared_watchlist_entries/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403223000_household_activity/migration.sql
 ```
 
 5. Generate the Prisma client:
@@ -140,8 +147,14 @@ npm run dev
   - at least one provider matches the selected profile or active group's preferred services
 - Titles with provider data marked `unknown` are never treated as “available now.”
 - Solo resurfacing uses the active solo profile's watchlist and watched history.
-- Group resurfacing uses the union of watchlists from the selected members, but suppresses titles the exact active group already watched together.
-- Group resurfacing does not create a shared household watchlist. Saved titles still belong to the individual members who added them.
+- Group resurfacing uses:
+  - the union of personal watchlists from the selected members
+  - titles intentionally saved for the exact active group
+  - titles intentionally saved for the household
+- Exact current-group watch history still suppresses stale shared rewatches.
+- Shared watchlist entries are planning intent, not taste writes:
+  - personal watchlists still belong to individual members
+  - group-shared and household-shared saves stay separate from personal likes, dislikes, and watched history
 - Provider freshness for resurfacing is on-demand:
   - fresh provider snapshots are reused from `TitleCache` when they are recent
   - stale watchlist items refresh provider availability when the Home feed is built
@@ -159,10 +172,26 @@ npm run dev
 - Reminder records are stored per signed-in user and current recommendation context.
 - Solo reminders reflect the active solo profile's watchlist and watched state.
 - Group reminders reflect the active group context and suppress titles the exact group already watched together.
+- Group reminders can reuse shared-save explanations such as:
+  - `Saved for Brendan + Palmer`
+  - `Saved by Katie for the household`
 - Reminder freshness is on-demand:
   - shell badge loads and the reminders page refresh the current context's reminder set
   - existing provider freshness and title-cache rules are reused
   - no cron jobs, push delivery, or email delivery are required in MVP
+- Reminder preferences are user-owned and currently support:
+  - category toggles for `available_now`, `watchlist_resurface`, and `group_watch_candidate`
+  - separate solo and group reminder toggles
+  - reminder pace: `Light`, `Balanced`, or `Proactive`
+  - optional dismissed-reminder reappearance after a fixed 14-day cooldown
+- Reminder pacing is deterministic:
+  - `Available now` remains the highest-value signal unless disabled
+  - softer resurfacing reminders are capped based on the selected pace
+  - `Light` keeps softer nudges minimal, `Balanced` allows a few, and `Proactive` allows more
+- Dismissed reminder behavior is conservative:
+  - dismissed reminders stay gone by default
+  - if reappearance is enabled, the same dismissed reminder can return after 14 days if it still fits the current context
+  - a newly higher-value `available_now` reminder can still surface as its own category unless that category is disabled
 - Reminder actions currently support:
   - open title detail
   - mark read
@@ -177,6 +206,8 @@ npm run dev
 - Smart Library sections in MVP include:
   - `Available now`
   - `Best from your watchlist` or `Good for this group`
+  - `Shared for this group`
+  - `Shared for household`
   - `Recently saved`
   - `Already watched`
   - `Hidden / not interested` or `Deprioritized for this group`
@@ -192,6 +223,75 @@ npm run dev
   - group decision sections allow `Watched by current group` without mutating each participant's personal taste state
   - informational group sections such as watched-together history and deprioritized titles stay read-oriented to avoid ambiguous shared edits
 - Exact current-group watch history suppresses stale “fresh pick” candidates so the room does not keep seeing titles it already watched together as new decisions.
+
+## Shared Watchlist Planning
+
+- ScreenLantern now models three separate save semantics:
+  - personal watchlist: a `WATCHLIST` interaction owned by one user profile
+  - group-shared save: a shared planning entry for the exact active group context
+  - household-shared save: a shared planning entry for the whole household
+- Shared saves record:
+  - who saved the title
+  - which context it was saved for
+  - whether the scope is `GROUP` or `HOUSEHOLD`
+- Shared saves do not automatically create:
+  - personal watchlist rows
+  - likes or dislikes
+  - personal watched history
+  - group watch sessions
+- Title detail and Library surfaces make the distinction explicit with actions such as:
+  - `Save for me`
+  - `Save for current group`
+  - `Save for household`
+- Group and household shared entries can feed group resurfacing, reminders, and Library sections, but solo recommendations remain grounded in the active solo profile's personal state.
+
+## Cross-User Fit and Title Transparency
+
+- Title detail now includes a derived fit summary for the active context.
+- Solo contexts can surface copy such as:
+  - `Best fit for Brendan`
+  - `Good fit for Katie`
+- Group contexts can surface honest shared-language such as:
+  - `Good shared fit for Brendan + Palmer`
+  - `Safe compromise for Brendan + Palmer`
+  - `Mixed fit for Brendan + Katie`
+  - `Brendan + Palmer already watched this together`
+- Household signal rows are derived from existing data:
+  - personal interactions like watchlist, like, dislike, hide, and watched
+  - group watch-session participation
+  - shared watchlist saves for the active group or household
+  - existing solo recommendation heuristics for “likes similar picks” style fit
+- Fit summaries are intentionally derived, not persisted in a new table.
+- Home and Library cards can also show a lightweight fit label such as:
+  - `Best for Katie`
+  - `Strong shared fit`
+  - `Shared planning pick`
+- This keeps “who this is best for?” legible without exposing raw score math or building a full analytics dashboard.
+
+## Household Activity Feed
+
+- ScreenLantern now includes a dedicated `/app/activity` page in the protected shell.
+- The activity feed is household-scoped and intentionally limited to explicitly shared events:
+  - shared saves for the active group
+  - shared saves for the household
+  - shared-save removals
+  - watched-by-current-group events
+  - invite creation, revocation, and redemption
+  - ownership transfer
+  - member removal
+- Activity events are emitted from the existing shared-watchlist, group-watch, invite, and governance flows instead of from a separate logging system.
+- Personal-only actions such as private watchlist saves, likes, dislikes, hides, and solo watched history do not appear in the household feed.
+- Activity items store:
+  - household
+  - actor
+  - event type
+  - timestamp
+  - optional title reference
+  - optional context label
+  - summary and detail copy for rendering
+- Title-linked activity items include an `Open ...` link back to the detail page.
+- Feed reads are authorized server-side against the signed-in user's current household, so cross-household activity never leaks.
+- The feed is designed as collaborative history, not a full audit log, so it stays concise and human-readable.
 
 ## Household Governance
 
@@ -230,9 +330,12 @@ npm run dev
 - Background metadata refresh jobs and richer cache invalidation
 - Cross-region provider reconciliation beyond the configured watch region
 - Group watch-session editing, undo, and richer shared-history UI
+- Activity reactions, comments, per-title discussion threads, and richer activity filtering
 - Streaming service sync
 - Deep recommendation-debug views and richer explanation timelines
 - Push, email, or cron-based “now available” notifications
-- Advanced faceted Library search, bulk cleanup workflows, and reminder-preference tuning
+- Advanced faceted Library search, bulk cleanup workflows, and deeper reminder-rule tuning
+- Custom per-category cooldown windows and more advanced reminder frequency rules
+- Comments, reactions, and richer collaboration feeds on shared watchlist entries
 - AI chat and LLM orchestration
 - Native mobile clients

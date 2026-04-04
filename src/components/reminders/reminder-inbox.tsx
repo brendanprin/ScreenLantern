@@ -47,6 +47,7 @@ export function ReminderInbox() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tuningNote, setTuningNote] = useState<string | null>(null);
   const contextLabel = buildContextLabel(activeNames, isGroupMode);
 
   useEffect(() => {
@@ -81,11 +82,13 @@ export function ReminderInbox() {
         if (!controller.signal.aborted) {
           setItems(payload.items ?? []);
           setUnreadCount(payload.unreadCount ?? 0);
+          setTuningNote(payload.tuningNote ?? null);
         }
       } catch (loadError) {
         if (!controller.signal.aborted) {
           setItems([]);
           setUnreadCount(0);
+          setTuningNote(null);
           setError(
             loadError instanceof Error
               ? loadError.message
@@ -178,6 +181,9 @@ export function ReminderInbox() {
               ? `These reminders are for ${contextLabel} and only surface shared picks that still make sense for this exact room.`
               : `These reminders are for ${contextLabel} and reflect this profile's saved titles, services, and watched history.`}
           </p>
+          {tuningNote ? (
+            <p className="text-sm text-muted-foreground">{tuningNote}</p>
+          ) : null}
         </CardHeader>
       </Card>
 
@@ -208,6 +214,7 @@ export function ReminderInbox() {
               <p className="mt-1">
                 As ScreenLantern finds saved titles that are practical again, they will land here for this context.
               </p>
+              {tuningNote ? <p className="mt-2">{tuningNote}</p> : null}
             </div>
           </CardContent>
         </Card>
