@@ -252,6 +252,68 @@ function normalizeLooseText(value: string) {
     .trim();
 }
 
+function normalizeIntegerValue(value: unknown): number | null | undefined {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+function normalizeBooleanValue(value: unknown): boolean | null | undefined {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = normalizeLooseText(value);
+  if (normalized === "true" || normalized === "yes" || normalized === "1") {
+    return true;
+  }
+
+  if (normalized === "false" || normalized === "no" || normalized === "0") {
+    return false;
+  }
+
+  return null;
+}
+
+function normalizeProviderValue(value: unknown): string | null | undefined {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value.trim() || null;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const firstProvider = value.find(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+  );
+
+  return firstProvider?.trim() ?? null;
+}
+
 export function normalizeMediaTypeValue(value: unknown): MediaTypeKey | null | undefined {
   if (value == null || value === "") {
     return null;
@@ -350,6 +412,18 @@ export function normalizeRecommendationLikeArgs(rawArgs: unknown) {
 
   const normalized = { ...rawArgs } as Record<string, unknown>;
 
+  if ("limit" in normalized) {
+    normalized.limit = normalizeIntegerValue(normalized.limit) ?? null;
+  }
+
+  if ("runtimeMax" in normalized) {
+    normalized.runtimeMax = normalizeIntegerValue(normalized.runtimeMax) ?? null;
+  }
+
+  if ("provider" in normalized) {
+    normalized.provider = normalizeProviderValue(normalized.provider) ?? null;
+  }
+
   if ("mediaType" in normalized) {
     const originalMediaType = normalized.mediaType;
     const parsedMediaType = normalizeMediaTypeValue(originalMediaType);
@@ -372,8 +446,21 @@ export function normalizeRecommendationLikeArgs(rawArgs: unknown) {
       normalizeMediaTypeValue(normalized.referenceMediaType) ?? null;
   }
 
+  if ("referenceTmdbId" in normalized) {
+    normalized.referenceTmdbId = normalizeIntegerValue(normalized.referenceTmdbId) ?? null;
+  }
+
   if ("mood" in normalized) {
     normalized.mood = normalizeMoodValue(normalized.mood) ?? null;
+  }
+
+  if ("onlyOnPreferredProviders" in normalized) {
+    normalized.onlyOnPreferredProviders =
+      normalizeBooleanValue(normalized.onlyOnPreferredProviders) ?? null;
+  }
+
+  if ("excludeWatched" in normalized) {
+    normalized.excludeWatched = normalizeBooleanValue(normalized.excludeWatched) ?? null;
   }
 
   return normalized;
@@ -390,6 +477,10 @@ export function normalizeSearchArgs(rawArgs: unknown) {
     normalized.mediaType = normalizeMediaTypeValue(normalized.mediaType) ?? null;
   }
 
+  if ("limit" in normalized) {
+    normalized.limit = normalizeIntegerValue(normalized.limit) ?? null;
+  }
+
   return normalized;
 }
 
@@ -400,6 +491,10 @@ function normalizeFitArgs(rawArgs: unknown) {
 
   const normalized = { ...rawArgs } as Record<string, unknown>;
 
+  if ("tmdbId" in normalized) {
+    normalized.tmdbId = normalizeIntegerValue(normalized.tmdbId) ?? normalized.tmdbId;
+  }
+
   if ("mediaType" in normalized) {
     const mediaType = normalizeMediaTypeValue(normalized.mediaType);
     if (mediaType) {
@@ -408,6 +503,96 @@ function normalizeFitArgs(rawArgs: unknown) {
   }
 
   return normalized;
+}
+
+function tryParseJsonObjectCandidate(value: string) {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function normalizePseudoToolParameters(value: unknown) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  const parsed = tryParseJsonObjectCandidate(trimmed);
+  return parsed ?? value;
+}
+
+export function extractPseudoToolCallFromContent(content: string): {
+  name: string;
+  parameters: unknown;
+} | null {
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const candidateStrings = new Set<string>([trimmed]);
+  const fencedMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fencedMatch?.[1]) {
+    candidateStrings.add(fencedMatch[1].trim());
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidateStrings.add(trimmed.slice(firstBrace, lastBrace + 1).trim());
+  }
+
+  for (const candidate of candidateStrings) {
+    const parsed = tryParseJsonObjectCandidate(candidate);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      continue;
+    }
+
+    const object = parsed as Record<string, unknown>;
+
+    if (typeof object.name === "string") {
+      return {
+        name: object.name,
+        parameters: normalizePseudoToolParameters(
+          "parameters" in object ? object.parameters : "arguments" in object ? object.arguments : {},
+        ),
+      };
+    }
+
+    if (typeof object.tool === "string") {
+      return {
+        name: object.tool,
+        parameters: normalizePseudoToolParameters(
+          "parameters" in object ? object.parameters : "arguments" in object ? object.arguments : {},
+        ),
+      };
+    }
+
+    if (
+      "function" in object &&
+      object.function &&
+      typeof object.function === "object" &&
+      !Array.isArray(object.function)
+    ) {
+      const fn = object.function as Record<string, unknown>;
+      if (typeof fn.name === "string") {
+        return {
+          name: fn.name,
+          parameters: normalizePseudoToolParameters(
+            "arguments" in fn ? fn.arguments : "parameters" in fn ? fn.parameters : {},
+          ),
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 const recommendationArgsSchema = z.object({
@@ -1267,6 +1452,93 @@ function getLatestCardsFromPayload(
   return [];
 }
 
+function summarizeToolPayload(
+  runtime: AssistantRuntimeContext,
+  toolName: string,
+  payload: AssistantToolPayload | { error: string },
+) {
+  if ("error" in payload) {
+    return "I had trouble applying that filter cleanly. Try asking again with one or two constraints, like “funny movies on Prime Video.”";
+  }
+
+  const cards = getLatestCardsFromPayload(payload);
+  if (cards.length > 0) {
+    const sourceLabel =
+      toolName === "get_watchlist_candidates"
+        ? "saved pick"
+        : toolName === "get_library_candidates"
+          ? "library pick"
+          : toolName === "get_fit_summary"
+            ? "fit"
+            : toolName === "search_titles"
+              ? "result"
+              : "pick";
+
+    if (toolName === "get_fit_summary" && "headline" in payload) {
+      return `${payload.headline}. ${payload.detail}`;
+    }
+
+    return summarizeCards(runtime, cards, sourceLabel);
+  }
+
+  if ("summary" in payload) {
+    return payload.summary;
+  }
+
+  if ("headline" in payload) {
+    return `${payload.headline}. ${payload.detail}`;
+  }
+
+  if ("results" in payload) {
+    if (payload.results.length === 0) {
+      return "I could not find a matching title for that search.";
+    }
+
+    const lead = payload.results[0];
+    return `I found ${lead.title}${lead.releaseYear ? ` (${lead.releaseYear})` : ""}.`;
+  }
+
+  if ("label" in payload) {
+    return `You’re currently asking for ${payload.label}.`;
+  }
+
+  return `I did not find a strong match for ${runtime.context.label} with those limits. Try loosening the runtime, provider, or saved-only constraints.`;
+}
+
+async function tryExecutePseudoToolCall(args: {
+  runtime: AssistantRuntimeContext;
+  content: string | null | undefined;
+  executionContext: AssistantToolExecutionContext;
+}): Promise<{ text: string; cards: AssistantMessageCard[] } | null> {
+  if (typeof args.content !== "string" || !args.content.trim()) {
+    return null;
+  }
+
+  const pseudoToolCall = extractPseudoToolCallFromContent(args.content);
+  if (!pseudoToolCall) {
+    return null;
+  }
+
+  let result: AssistantToolPayload | { error: string };
+
+  try {
+    result = await executeAssistantTool(
+      args.runtime,
+      args.executionContext,
+      pseudoToolCall.name,
+      pseudoToolCall.parameters,
+    );
+  } catch {
+    result = { error: "Pseudo tool call execution failed." };
+  }
+
+  const cards = getLatestCardsFromPayload(result);
+  return {
+    text: summarizeToolPayload(args.runtime, pseudoToolCall.name, result),
+    cards,
+  };
+}
+
 function buildProviderNote(card: AssistantMessageCard) {
   if (!card.handoff?.primaryOption) {
     if (card.title.providers.length === 0) {
@@ -1808,6 +2080,16 @@ async function runOpenAiAssistantTurn(args: {
     }
 
     if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
+      const pseudoToolResult = await tryExecutePseudoToolCall({
+        runtime: args.runtime,
+        content: assistantMessage.content,
+        executionContext: toolExecutionContext,
+      });
+
+      if (pseudoToolResult) {
+        return pseudoToolResult;
+      }
+
       return {
         text:
           assistantMessage.content?.trim() ||

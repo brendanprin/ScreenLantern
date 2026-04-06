@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   collectRecentlySuggestedKeys,
+  extractPseudoToolCallFromContent,
   hasNegativeAssistantInteraction,
   normalizeMediaTypeValue,
   normalizeMoodValue,
@@ -34,6 +35,24 @@ describe("assistant tool argument normalization", () => {
     });
   });
 
+  it("coerces numeric and provider-array recommendation args from local-model tool payloads", () => {
+    expect(
+      normalizeRecommendationLikeArgs({
+        limit: "10",
+        runtimeMax: "120",
+        provider: ["Amazon Prime Video"],
+        onlyOnPreferredProviders: "true",
+        excludeWatched: "false",
+      }),
+    ).toEqual({
+      limit: 10,
+      runtimeMax: 120,
+      provider: "Amazon Prime Video",
+      onlyOnPreferredProviders: true,
+      excludeWatched: false,
+    });
+  });
+
   it("drops invalid search media types instead of preserving malformed values", () => {
     expect(
       normalizeSearchArgs({
@@ -43,6 +62,34 @@ describe("assistant tool argument normalization", () => {
     ).toEqual({
       query: "When Harry Met Sally",
       mediaType: null,
+    });
+  });
+
+  it("coerces search limits from local-model string values", () => {
+    expect(
+      normalizeSearchArgs({
+        query: "Severance",
+        limit: "5",
+      }),
+    ).toEqual({
+      query: "Severance",
+      limit: 5,
+    });
+  });
+
+  it("extracts pseudo tool calls from plain-text assistant content", () => {
+    expect(
+      extractPseudoToolCallFromContent(`I couldn't find any funny movies under 2 hours due to the limited runtime filter. I'll try again with a different limit.
+
+{"name":"get_recommended_titles","parameters":{"limit":"10","mediaType":"movie","mood":"funny","provider":["Amazon Prime Video"]}}`),
+    ).toEqual({
+      name: "get_recommended_titles",
+      parameters: {
+        limit: "10",
+        mediaType: "movie",
+        mood: "funny",
+        provider: ["Amazon Prime Video"],
+      },
     });
   });
 
