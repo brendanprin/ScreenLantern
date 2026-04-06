@@ -5,10 +5,12 @@ import {
 
 import type {
   MediaTypeKey,
+  PersonalInteractionSourceState,
   TitleDetails,
   TitleSummary,
 } from "@/lib/types";
 import { mapTitleCacheToSummary, toTmdbKey, upsertTitleCache } from "@/lib/services/title-cache";
+import { getPersonalInteractionOrigin } from "@/lib/personal-interaction-sources";
 import { prisma } from "@/lib/prisma";
 
 const CONFLICTING_INTERACTIONS: Partial<Record<InteractionType, InteractionType[]>> = {
@@ -111,6 +113,82 @@ export async function getInteractionMap(
   });
 
   return map;
+}
+
+export async function getInteractionSourceStateMap(args: {
+  userId: string;
+  titleCacheIds: string[];
+}) {
+  if (args.titleCacheIds.length === 0) {
+    return new Map<string, PersonalInteractionSourceState>();
+  }
+
+  const interactions = await prisma.userTitleInteraction.findMany({
+    where: {
+      userId: args.userId,
+      titleCacheId: {
+        in: args.titleCacheIds,
+      },
+    },
+    select: {
+      titleCacheId: true,
+      interactionType: true,
+      sourceContext: true,
+    },
+  });
+
+  const map = new Map<string, PersonalInteractionSourceState>();
+
+  interactions.forEach((interaction) => {
+    const existing = map.get(interaction.titleCacheId) ?? {};
+
+    existing[interaction.interactionType] = getPersonalInteractionOrigin(
+      interaction.sourceContext,
+    );
+    map.set(interaction.titleCacheId, existing);
+  });
+
+  return map;
+}
+
+export type ClearImportedInteractionKind = "watchlist" | "watched" | "taste";
+
+export function getImportedInteractionTypesForKind(
+  kind: ClearImportedInteractionKind,
+) {
+  if (kind === "watchlist") {
+    return [InteractionType.WATCHLIST];
+  }
+
+  if (kind === "watched") {
+    return [InteractionType.WATCHED];
+  }
+
+  return [InteractionType.LIKE, InteractionType.DISLIKE];
+}
+
+export async function clearImportedInteractionState(args: {
+  userId: string;
+  title: TitleSummary | TitleDetails;
+  kind: ClearImportedInteractionKind;
+}) {
+  const cachedTitle = await upsertTitleCache(args.title);
+  const interactionTypes = getImportedInteractionTypesForKind(args.kind);
+  const cleared = await prisma.userTitleInteraction.deleteMany({
+    where: {
+      userId: args.userId,
+      titleCacheId: cachedTitle.id,
+      interactionType: {
+        in: interactionTypes,
+      },
+      sourceContext: SourceContext.IMPORTED,
+    },
+  });
+
+  return {
+    cleared: cleared.count,
+    titleCacheId: cachedTitle.id,
+  };
 }
 
 export async function getLibraryItems(

@@ -18,6 +18,7 @@
 - Carries a household role in MVP
 - Uses a single-owner governance model in MVP+, where exactly one user in a household should hold `OWNER`
 - Stores provider preferences and recommendation defaults
+- Can own one Trakt connection row for personal history import
 
 ### Household
 
@@ -62,6 +63,15 @@ In the current MVP implementation, membership is represented directly on the `Us
 - Typed interaction record between a user and a title
 - Supports actions such as watchlist, watched, like, dislike, and hide
 - Includes timestamps and optional context metadata
+- Can represent manual or imported personal state depending on `sourceContext`
+- Remains the single source of truth for personal taste and library state, whether it came from ScreenLantern or Trakt
+
+### UserTraktConnection
+
+- Persisted OAuth and sync metadata for one user's linked Trakt account
+- Stores encrypted access and refresh tokens plus lightweight sync status fields
+- Keeps import ownership strictly personal to the connected ScreenLantern user
+- Tracks last sync time, last sync status, and stored Trakt activity timestamps for delta sync planning
 
 ### SharedWatchlistEntry
 
@@ -131,6 +141,25 @@ In the current MVP implementation, membership is represented directly on the `Us
   - `householdRole`
   - `preferredProviders`
   - `defaultMediaType`
+  - `createdAt`
+  - `updatedAt`
+
+### Trakt Connections
+
+- `UserTraktConnection`
+  - `id`
+  - `userId`
+  - `householdId`
+  - `traktUserId`
+  - `traktUsername`
+  - `accessTokenEncrypted`
+  - `refreshTokenEncrypted`
+  - `expiresAt`
+  - `scope`
+  - `lastActivitiesJson`
+  - `lastSyncedAt`
+  - `lastSyncStatus`
+  - `lastSyncError`
   - `createdAt`
   - `updatedAt`
 
@@ -218,6 +247,24 @@ Source contexts:
 - `SOLO`
 - `GROUP`
 - `MANUAL`
+- `IMPORTED`
+
+Imported mapping rules:
+
+- Trakt watched history imports into `WATCHED`
+- Trakt watchlist imports into `WATCHLIST`
+- Trakt ratings map into:
+  - `LIKE` for ratings `7-10`
+  - `DISLIKE` for ratings `1-4`
+  - no interaction for neutral ratings `5-6`
+- Only previously imported rows are eligible for automatic clearing during later syncs
+- Manual ScreenLantern interactions remain authoritative over imported state
+- Source-aware UI reads `sourceContext` to label personal state as imported from Trakt or added in ScreenLantern
+- Imported-state cleanup can remove only `IMPORTED` rows for one title and one user:
+  - `watchlist` clears imported `WATCHLIST`
+  - `watched` clears imported `WATCHED`
+  - `taste` clears imported `LIKE` and `DISLIKE`
+- Shared watchlist rows, household activity, and group watch sessions are unaffected by imported-state cleanup
 
 ### Shared Watchlist Entries
 

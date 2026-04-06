@@ -62,6 +62,33 @@ async function ensureActiveButton(button: ReturnType<Page["getByRole"]>) {
   await expect(button).toHaveClass(/bg-primary/);
 }
 
+async function useSavedGroup(page: Page, groupName: string) {
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page
+      .getByRole("button", {
+        name: `Use group ${groupName}`,
+        exact: true,
+      })
+      .click(),
+  ]);
+}
+
+async function useSoloProfile(page: Page) {
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/recommendation-context") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Use my solo profile" }).click(),
+  ]);
+}
+
 function uniqueEmail(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
 }
@@ -124,6 +151,23 @@ test("search and detail flow works", async ({ page }) => {
   await page.getByRole("link", { name: "Dune" }).first().click();
   await expect(page.getByRole("heading", { name: "Dune" })).toBeVisible();
   await expect(page.getByText("Where to watch")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open in Max" })).toBeVisible();
+  await expect(page.getByText("Choose service")).toBeVisible();
+});
+
+test("streaming handoff stays honest on detail and library surfaces", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/title/tv/101");
+  await expect(
+    page.getByText("Available on Disney Plus, but direct open is unavailable."),
+  ).toBeVisible();
+
+  await page.goto("/app/library?collection=LIKE");
+  const duneCard = page.getByTestId("library-card-collection-movie-11");
+  await expect(duneCard).toBeVisible();
+  await expect(duneCard.getByRole("link", { name: "Open in Max" })).toBeVisible();
 });
 
 test("watchlist and taste actions work on a title detail page", async ({ page }) => {
@@ -149,14 +193,7 @@ test("group recommendation happy path is visible from household mode", async ({
 }) => {
   await signInAs(page, GEOFF_EMAIL);
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
   await page.goto("/app");
   await expect(
     page.getByRole("heading", { name: "Recommendations for Brendan + Palmer" }),
@@ -185,14 +222,7 @@ test("recommendation explanations surface for solo and group contexts", async ({
   ).toBeVisible();
 
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
   await page.goto("/app");
   await expect(
     page.getByRole("heading", { name: "Recommendations for Brendan + Palmer" }),
@@ -233,14 +263,7 @@ test("title detail surfaces solo fit, mixed group fit, and watched-together trut
   await expect(page.getByTestId("title-fit-member-geoff")).toContainText("Disliked it");
 
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(2).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer + Geoff");
 
   await page.goto("/app/title/tv/106");
   const groupFitSummary = page.getByTestId("title-fit-summary");
@@ -285,14 +308,7 @@ test("watchlist resurfacing lanes highlight available-now picks and suppress wat
   ).toContainText("Saved to your watchlist and available on your services");
 
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
   await page.goto("/app");
   const groupAvailableLane = page.getByTestId("recommendation-lane-available_now");
   await expect(groupAvailableLane).toBeVisible();
@@ -341,14 +357,7 @@ test("reminders inbox surfaces solo and group reminders with read and dismiss ac
   await expect(page.getByTestId("reminder-card-movie-16")).toHaveCount(0);
 
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
   await page.goto("/app/reminders");
   await expect(
     page.getByRole("heading", { name: "Reminders for Brendan + Palmer" }),
@@ -422,14 +431,7 @@ test("reminder preferences save, load, and tune solo and group reminder noise", 
   await expect(page.locator('[data-testid^="reminder-card-"]')).toHaveCount(0);
 
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
   await page.goto("/app/reminders");
   await expect(
     page.getByRole("heading", { name: "Reminders for Brendan + Palmer" }),
@@ -482,19 +484,13 @@ test("shared watchlist saves stay distinct from personal watchlists and feed gro
 }) => {
   await signInAs(page, DEMO_EMAIL);
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
 
   await page.goto("/app/title/movie/11");
+  await expect(page.getByText("No shared planning state")).toBeVisible();
   await expect(
     page.getByText(
-      "This title is not currently saved in your personal or shared planning lists.",
+      "This title is not currently saved for the active group or the household.",
     ),
   ).toBeVisible();
   await page.getByRole("button", { name: "Save for current group" }).click();
@@ -528,14 +524,7 @@ test("shared watchlist saves stay distinct from personal watchlists and feed gro
   await signOut(page);
   await signInAs(page, GEOFF_EMAIL);
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
 
   await page.goto("/app/title/movie/16");
   await page.getByRole("button", { name: "Save for current group" }).click();
@@ -559,14 +548,7 @@ test("library intelligence stays group-aware and moves watched-together titles o
 }) => {
   await signInAs(page, DEMO_EMAIL);
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
 
   await page.goto("/app/library");
   await expect(
@@ -627,14 +609,7 @@ test("persisted solo profile context restores across refresh", async ({ page }) 
 test("group watch sessions stay separate from solo watched history", async ({ page }) => {
   await signInAs(page, GEOFF_EMAIL);
   await page.goto("/app/household");
-  await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/recommendation-context") &&
-        response.request().method() === "POST",
-    ),
-    page.getByRole("button", { name: "Use this group" }).nth(1).click(),
-  ]);
+  await useSavedGroup(page, "Brendan + Palmer");
   await page.goto("/app/title/movie/12");
   await page.getByRole("button", { name: "Watched by current group" }).click();
   await expect(
@@ -671,6 +646,135 @@ test("group watch sessions stay separate from solo watched history", async ({ pa
     page
       .getByTestId("library-section-collection")
       .getByRole("heading", { name: "Arrival" }),
+  ).toBeVisible();
+});
+
+test("Trakt linking shows imported sources clearly and lets users clear imported title state", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/household");
+  await useSoloProfile(page);
+  await page.goto("/app/settings");
+  await expect(page.getByTestId("trakt-connection-status")).toContainText(
+    "Not connected",
+  );
+  await page.getByRole("button", { name: "Connect Trakt" }).click();
+  await expect(page).toHaveURL(/\/app\/settings/);
+  await expect(page.getByTestId("trakt-connection-status")).toContainText(
+    "Connected as brendan",
+  );
+  await page.waitForLoadState("networkidle");
+
+  await page.getByRole("button", { name: "Sync now" }).click();
+  await expect(
+    page
+      .getByTestId("trakt-integration-card")
+      .getByText(/^Last sync:/),
+  ).not.toContainText("Never synced");
+  await expect(page.getByTestId("trakt-recommendation-impact")).toContainText(
+    "Imported watched history helps ScreenLantern avoid resurfacing titles you have already seen.",
+  );
+  await expect(page.getByTestId("trakt-disconnect-note")).toContainText(
+    "Disconnecting Trakt stops future syncs, but imported personal data already in ScreenLantern stays until you clear or change it.",
+  );
+
+  await page.goto("/app/library?collection=WATCHED");
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Spider-Man: Into the Spider-Verse" }),
+  ).toBeVisible();
+  await page.goto("/app/library?collection=WATCHED&source=imported");
+  const importedWatchedCard = page.getByTestId("library-card-collection-movie-18");
+  await expect(importedWatchedCard).toBeVisible();
+  await expect(importedWatchedCard).toContainText("Imported from Trakt");
+
+  await page.goto("/app/library?collection=WATCHLIST");
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Ted Lasso" }),
+  ).toBeVisible();
+
+  await page.goto("/app/library?collection=LIKE");
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Palm Springs" }),
+  ).toBeVisible();
+
+  await page.goto("/app/title/movie/18");
+  await expect(page.getByTestId("title-personal-state-watched")).toContainText(
+    "Watched via Trakt sync",
+  );
+  await page.getByRole("button", { name: "Remove imported watched state" }).click();
+  await expect(page.getByTestId("title-personal-state-watched")).toHaveCount(0);
+
+  await page.goto("/app/title/tv/107");
+  await expect(page.getByTestId("title-personal-state-watchlist")).toContainText(
+    "Imported from Trakt watchlist",
+  );
+  await page.getByRole("button", { name: "Remove imported watchlist" }).click();
+  await expect(page.getByTestId("title-personal-state-watchlist")).toHaveCount(0);
+
+  await page.goto("/app/title/movie/15");
+  await expect(page.getByTestId("title-personal-state-like")).toContainText(
+    "Liked via Trakt ratings",
+  );
+  await ensureActiveButton(
+    page.getByRole("button", { name: "Save for me", exact: true }),
+  );
+  await expect(page.getByTestId("title-personal-state-watchlist")).toContainText(
+    "Added in ScreenLantern",
+  );
+  await page.getByRole("button", { name: "Remove imported rating signal" }).click();
+  await expect(page.getByTestId("title-personal-state-like")).toHaveCount(0);
+  await expect(page.getByTestId("title-personal-state-watchlist")).toContainText(
+    "Added in ScreenLantern",
+  );
+
+  const secondSyncResponse = await page.context().request.post(
+    "/api/integrations/trakt/sync",
+  );
+  const secondSyncPayload = (await secondSyncResponse.json()) as {
+    result: {
+      imported: {
+        watched: number;
+        watchlist: number;
+        likes: number;
+        dislikes: number;
+      };
+      cleared: {
+        watched: number;
+        watchlist: number;
+        ratings: number;
+      };
+    };
+  };
+  expect(secondSyncResponse.ok()).toBeTruthy();
+  expect(secondSyncPayload.result.imported.watched).toBe(0);
+  expect(secondSyncPayload.result.imported.watchlist).toBe(0);
+  expect(secondSyncPayload.result.imported.likes).toBe(0);
+  expect(secondSyncPayload.result.cleared.watched).toBe(0);
+  expect(secondSyncPayload.result.cleared.watchlist).toBe(0);
+  expect(secondSyncPayload.result.cleared.ratings).toBe(0);
+
+  await page.goto("/app/settings");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Disconnect Trakt" }).click();
+  await expect(page.getByTestId("trakt-connection-status")).toContainText(
+    "Not connected",
+  );
+  await expect(page.getByTestId("trakt-import-rules")).toContainText(
+    "Disconnecting Trakt stops future syncs but keeps already imported personal data unless you clear it from a title detail page or change it manually.",
+  );
+
+  await page.goto("/app/library?collection=WATCHED");
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Only Murders in the Building" }),
   ).toBeVisible();
 });
 

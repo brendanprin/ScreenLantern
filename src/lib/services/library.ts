@@ -1,14 +1,21 @@
 import { InteractionType } from "@prisma/client";
 
+import {
+  getInteractionOriginForType,
+  getLibrarySourceBadge,
+  getPersonalInteractionOrigin,
+  matchesLibrarySourceFilter,
+} from "@/lib/personal-interaction-sources";
 import { hydrateProvidersForTitles } from "@/lib/services/catalog";
 import { getGroupWatchStateMap } from "@/lib/services/group-watch-sessions";
-import { getInteractionMap } from "@/lib/services/interactions";
+import {
+  getInteractionMap,
+} from "@/lib/services/interactions";
 import { prisma } from "@/lib/prisma";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import {
   classifySelectedServiceAvailability,
   getWatchlistResurfacingSnapshot,
-  type SelectedServiceAvailability,
   type WatchlistResurfacingCandidate,
 } from "@/lib/services/recommendations";
 import {
@@ -18,8 +25,11 @@ import {
 import { mapTitleCacheToSummary, toTmdbKey } from "@/lib/services/title-cache";
 import type {
   GroupWatchState,
+  LibrarySourceFilter,
+  PersonalInteractionSourceState,
   RecommendationExplanation,
   RecommendationModeKey,
+  SelectedServiceAvailability,
   SharedWatchlistTitleState,
   TitleSummary,
 } from "@/lib/types";
@@ -35,6 +45,9 @@ export type LibraryFocus = (typeof LIBRARY_FOCUS_OPTIONS)[number];
 
 export const LIBRARY_SORT_OPTIONS = ["smart", "recent", "runtime"] as const;
 export type LibrarySort = (typeof LIBRARY_SORT_OPTIONS)[number];
+
+export const LIBRARY_SOURCE_OPTIONS = ["all", "imported", "manual"] as const;
+export type LibrarySource = (typeof LIBRARY_SOURCE_OPTIONS)[number];
 
 export const LIBRARY_COLLECTION_OPTIONS = [
   "overview",
@@ -69,6 +82,8 @@ export interface LibrarySectionItem {
   updatedAt: string;
   score: number;
   isWatched: boolean;
+  personalInteractionSources?: PersonalInteractionSourceState | null;
+  personalSourceBadge?: string | null;
 }
 
 export interface LibrarySection {
@@ -89,6 +104,8 @@ export interface LibraryWorkspace {
   actingUserId: string | null;
   focus: LibraryFocus;
   sort: LibrarySort;
+  source: LibrarySourceFilter;
+  showSourceFilters: boolean;
   collection: LibraryCollection;
   sections: LibrarySection[];
 }
@@ -254,6 +271,34 @@ function applyFocusAndSort<T extends LibrarySectionItem>(
 
     return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
   });
+}
+
+function getCollectionSourceOrigin(
+  collection: LibraryCollection,
+  state: PersonalInteractionSourceState | null | undefined,
+) {
+  if (
+    collection === "overview" ||
+    collection === "shared_group" ||
+    collection === "shared_household"
+  ) {
+    return null;
+  }
+
+  return getInteractionOriginForType(state, collection);
+}
+
+function applyCollectionSourceFilter<T extends LibrarySectionItem>(args: {
+  items: T[];
+  collection: LibraryCollection;
+  source: LibrarySourceFilter;
+}) {
+  return args.items.filter((item) =>
+    matchesLibrarySourceFilter(
+      getCollectionSourceOrigin(args.collection, item.personalInteractionSources),
+      args.source,
+    ),
+  );
 }
 
 function buildRecentlySavedExplanations(args: {
@@ -559,6 +604,7 @@ async function buildGroupedInteractionItems(args: {
       title: TitleSummary;
       names: Set<string>;
       interactionTypes: Set<InteractionType>;
+      personalInteractionSources: PersonalInteractionSourceState | null;
       updatedAt: Date;
     }
   >();
@@ -571,6 +617,10 @@ async function buildGroupedInteractionItems(args: {
     if (existing) {
       existing.names.add(interaction.user.name);
       existing.interactionTypes.add(interaction.interactionType);
+      if (existing.personalInteractionSources) {
+        existing.personalInteractionSources[interaction.interactionType] =
+          getPersonalInteractionOrigin(interaction.sourceContext);
+      }
       if (interaction.updatedAt > existing.updatedAt) {
         existing.updatedAt = interaction.updatedAt;
       }
@@ -582,6 +632,14 @@ async function buildGroupedInteractionItems(args: {
       title,
       names: new Set([interaction.user.name]),
       interactionTypes: new Set([interaction.interactionType]),
+      personalInteractionSources:
+        args.userIds.length === 1
+          ? {
+              [interaction.interactionType]: getPersonalInteractionOrigin(
+                interaction.sourceContext,
+              ),
+            }
+          : null,
       updatedAt: interaction.updatedAt,
     });
   });
@@ -615,6 +673,7 @@ async function buildGroupedInteractionItems(args: {
       updatedAt: entry.updatedAt.toISOString(),
       score: entry.updatedAt.getTime(),
       isWatched: args.interactionTypes.includes(InteractionType.WATCHED),
+      personalInteractionSources: entry.personalInteractionSources,
     };
   });
 }
@@ -682,6 +741,8 @@ async function buildCollectionSection(args: {
   isGroupMode: boolean;
   focus: LibraryFocus;
   sort: LibrarySort;
+  source: LibrarySourceFilter;
+  itemsSourceFilterEnabled: boolean;
 }) {
   if (args.collection === "overview") {
     return null;
@@ -796,7 +857,26 @@ async function buildCollectionSection(args: {
     title,
     description,
     emptyMessage: "Nothing in this collection matched the current view.",
-    items: applyFocusAndSort(items, args.focus, args.sort).slice(0, 12),
+    items: applyFocusAndSort(
+      applyCollectionSourceFilter({
+        items: args.itemsSourceFilterEnabled
+          ? items.map((item) => ({
+              ...item,
+              personalSourceBadge: getLibrarySourceBadge({
+                origin: getCollectionSourceOrigin(
+                  args.collection,
+                  item.personalInteractionSources,
+                ),
+                sourceFilter: args.source,
+              }),
+            }))
+          : items,
+        collection: args.collection,
+        source: args.itemsSourceFilterEnabled ? args.source : "all",
+      }),
+      args.focus,
+      args.sort,
+    ).slice(0, 12),
     actionMode,
     showGroupSaveAction,
     showHouseholdSaveAction,
@@ -809,6 +889,7 @@ export async function getLibraryWorkspace(args: {
   focus?: string;
   sort?: string;
   collection?: string;
+  source?: string;
 }) : Promise<LibraryWorkspace> {
   const bootstrap = await getRecommendationContextBootstrap({
     userId: args.userId,
@@ -825,9 +906,18 @@ export async function getLibraryWorkspace(args: {
   )
     ? (args.collection as LibraryCollection)
     : "overview";
+  const source = LIBRARY_SOURCE_OPTIONS.includes(args.source as LibrarySource)
+    ? (args.source as LibrarySource)
+    : "all";
   const context = bootstrap.context;
   const contextLabel = buildContextLabel(context.activeNames, context.isGroupMode);
   const actingUserId = context.isGroupMode ? null : context.selectedUserIds[0] ?? args.userId;
+  const showSourceFilters =
+    !context.isGroupMode &&
+    actingUserId === args.userId &&
+    collection !== "overview" &&
+    collection !== "shared_group" &&
+    collection !== "shared_household";
   const watchlistSections = await buildWatchlistSections({
     userIds: context.selectedUserIds,
     householdId: args.householdId,
@@ -987,6 +1077,8 @@ export async function getLibraryWorkspace(args: {
     isGroupMode: context.isGroupMode,
     focus,
     sort,
+    source,
+    itemsSourceFilterEnabled: showSourceFilters,
   });
 
   const sections = [
@@ -1035,7 +1127,9 @@ export async function getLibraryWorkspace(args: {
     actingUserId,
     focus,
     sort,
+    source,
     collection,
+    showSourceFilters,
     sections: sections.map((section) => ({
       ...section,
       items: section.items.map((item) => ({

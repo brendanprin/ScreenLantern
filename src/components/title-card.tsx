@@ -4,11 +4,13 @@ import { InteractionType } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { InteractionButtons } from "@/components/interaction-buttons";
+import { ProviderHandoffActions } from "@/components/provider-handoff-actions";
 import { TitlePoster } from "@/components/title-poster";
 import type {
   GroupWatchState,
   RecommendationExplanation,
   SharedWatchlistTitleState,
+  TitleHandoffSummary,
   TitleSummary,
 } from "@/lib/types";
 import {
@@ -34,7 +36,9 @@ interface TitleCardProps {
   recommendationExplanations?: RecommendationExplanation[];
   recommendationContextLabel?: string;
   recommendationBadges?: string[];
+  personalSourceBadge?: string | null;
   fitSummaryLabel?: string | null;
+  handoff?: TitleHandoffSummary | null;
   testId?: string;
 }
 
@@ -53,7 +57,9 @@ export function TitleCard({
   recommendationExplanations = [],
   recommendationContextLabel,
   recommendationBadges = [],
+  personalSourceBadge,
   fitSummaryLabel,
+  handoff,
   testId,
 }: TitleCardProps) {
   const primaryExplanation = recommendationExplanations[0];
@@ -80,6 +86,9 @@ export function TitleCard({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {personalSourceBadge ? (
+                <Badge variant="secondary">{personalSourceBadge}</Badge>
+              ) : null}
               {fitSummaryLabel ? <Badge variant="outline">{fitSummaryLabel}</Badge> : null}
               {recommendationBadges.map((badge) => (
                 <Badge
@@ -100,6 +109,7 @@ export function TitleCard({
                   <Badge key={provider.name}>{provider.name}</Badge>
                 ))}
             </div>
+            {handoff ? <ProviderHandoffActions handoff={handoff} /> : null}
             {primaryExplanation ? (
               <div className="rounded-xl border border-primary/15 bg-primary/5 p-3">
                 <p

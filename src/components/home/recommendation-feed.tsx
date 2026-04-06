@@ -19,6 +19,7 @@ export function RecommendationFeed() {
   const [items, setItems] = useState<RecommendationItem[]>([]);
   const [lanes, setLanes] = useState<RecommendationLane[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const contextLabel =
     activeNames.length > 0
       ? isGroupMode
@@ -33,6 +34,7 @@ export function RecommendationFeed() {
 
     async function loadRecommendations() {
       setIsLoading(true);
+      setError(null);
 
       try {
         const response = await fetch(
@@ -41,6 +43,9 @@ export function RecommendationFeed() {
             signal: controller.signal,
           },
         );
+        if (!response.ok) {
+          throw new Error("Recommendations are temporarily unavailable.");
+        }
         const payload = (await response.json()) as RecommendationResponse;
         setItems(payload.items ?? []);
         setLanes(payload.lanes ?? []);
@@ -48,6 +53,7 @@ export function RecommendationFeed() {
         if (!controller.signal.aborted) {
           setItems([]);
           setLanes([]);
+          setError("Recommendations are temporarily unavailable. Try again shortly.");
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -89,7 +95,13 @@ export function RecommendationFeed() {
         </Card>
       ) : null}
 
-      {!isLoading && items.length === 0 && lanes.length === 0 ? (
+      {!isLoading && error ? (
+        <Card className="border-amber-200 bg-amber-50/80">
+          <CardContent className="p-6 text-sm text-amber-900">{error}</CardContent>
+        </Card>
+      ) : null}
+
+      {!isLoading && !error && items.length === 0 && lanes.length === 0 ? (
         <Card className="bg-white/70">
           <CardContent className="p-6 text-sm text-muted-foreground">
             No recommendation candidates yet. Try liking a few titles or setting provider preferences first.
@@ -116,6 +128,7 @@ export function RecommendationFeed() {
                   recommendationExplanations={item.explanations}
                   recommendationContextLabel={contextLabel}
                   recommendationBadges={item.badges}
+                  handoff={item.handoff}
                   fitSummaryLabel={deriveCompactFitLabel({
                     explanations: item.explanations,
                     isGroupMode,
@@ -136,6 +149,7 @@ export function RecommendationFeed() {
             recommendationExplanations={item.explanations}
             recommendationContextLabel={contextLabel}
             recommendationBadges={item.badges}
+            handoff={item.handoff}
             fitSummaryLabel={deriveCompactFitLabel({
               explanations: item.explanations,
               isGroupMode,

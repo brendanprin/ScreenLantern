@@ -1,11 +1,9 @@
-import { InteractionType } from "@prisma/client";
-
 import { PaginationNav } from "@/components/pagination-nav";
 import { TitleCard } from "@/components/title-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext } from "@/lib/auth";
 import { searchTitles } from "@/lib/services/catalog";
-import { getInteractionMap } from "@/lib/services/interactions";
+import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import { searchParamsSchema } from "@/lib/validations/catalog";
 
 interface SearchPageProps {
@@ -26,6 +24,10 @@ function buildSearchHref(params: Record<string, string | number>) {
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const user = await getCurrentUserContext();
+  const contextBootstrap = await getRecommendationContextBootstrap({
+    userId: user.userId,
+    householdId: user.householdId,
+  });
   const parsed = searchParamsSchema.parse(await searchParams);
   const results = parsed.query
     ? await searchTitles({
@@ -35,13 +37,10 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       })
     : { page: 1, totalPages: 1, totalResults: 0, results: [] };
 
-  const interactionMap = await getInteractionMap(
-    user.userId,
-    results.results.map((title) => ({
-      tmdbId: title.tmdbId,
-      mediaType: title.mediaType,
-    })),
-  );
+  const contextLabel =
+    contextBootstrap.context.activeNames.length > 0
+      ? contextBootstrap.context.activeNames.join(" + ")
+      : user.name;
 
   return (
     <div className="space-y-6">
@@ -50,7 +49,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           <p className="text-sm uppercase tracking-[0.24em] text-primary/70">Search</p>
           <CardTitle>Search movies and series</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Searching for {contextLabel}. Open a title to compare fit, save it for the
+            right context, or jump into a streaming service.
+          </p>
           <form className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px_120px]">
             <input
               className="h-11 rounded-2xl border border-input bg-background/80 px-4 py-2"
@@ -100,9 +103,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           <TitleCard
             key={`${title.mediaType}-${title.tmdbId}`}
             title={title}
-            activeTypes={
-              interactionMap.get(`${title.mediaType}:${title.tmdbId}`) ?? []
-            }
+            showActions={false}
           />
         ))}
       </div>

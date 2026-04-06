@@ -2,7 +2,7 @@
 
 ScreenLantern is a household streaming discovery app that reduces decision fatigue. It helps users search across movies and TV, see where a title is available, save and rate titles, and generate recommendations for a single person or a household combination.
 
-The MVP is intentionally focused on discovery, library management, and explainable recommendation logic. Playback, deep streaming integrations, and AI chat are explicitly deferred.
+The MVP is intentionally focused on discovery, library management, explainable recommendation logic, and practical handoff into a streaming service. Playback, direct per-streamer account linking, and AI chat are explicitly deferred.
 
 ## Stack
 
@@ -23,6 +23,8 @@ The MVP is intentionally focused on discovery, library management, and explainab
 - Server-persisted active recommendation context that restores across sessions and devices
 - Search and browse flows across movies and TV
 - Title detail pages with metadata and provider availability
+- Streaming-service handoff with honest `Open in service` actions when ScreenLantern can build a reliable destination URL
+- Trakt account linking with manual sync for personal watched history, ratings, and watchlist import
 - Personal library actions: watchlist, watched, like, dislike, hide
 - Solo recommendation mode
 - Combined household recommendation mode
@@ -36,6 +38,17 @@ The MVP is intentionally focused on discovery, library management, and explainab
 - Cross-user fit summary on title detail plus lightweight “who this is best for” card labels
 - Household activity feed for shared planning, watched-together moments, invites, and governance changes
 - Demo seed data for Brendan, Katie, Palmer, and Geoff
+
+## MVP Release Focus
+
+- Core loop:
+  - Search or browse
+  - Open a title detail page
+  - Save or compare in the right context
+  - Open in a streaming service
+- Home, Library, and Title Detail are the primary decision surfaces in MVP.
+- Search and Browse intentionally stay lighter-weight shortlist surfaces. They help users narrow candidates first, then move into detail for richer actions.
+- Reminders and Activity are useful supporting surfaces, but they are intentionally secondary to the core discovery-to-handoff flow.
 
 ## Local Setup
 
@@ -62,6 +75,7 @@ docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403200000_user_reminder_preferences/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403210000_shared_watchlist_entries/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403223000_household_activity/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260404103000_trakt_connections/migration.sql
 ```
 
 5. Generate the Prisma client:
@@ -106,6 +120,19 @@ npm run dev
 - `TMDB_API_KEY`: TMDb API key for live metadata
 - `TMDB_WATCH_REGION`: provider lookup region, default `US`
 - `TMDB_USE_MOCK_DATA`: set `1` to force local mock catalog usage
+- `TRAKT_CLIENT_ID`: Trakt OAuth client id
+- `TRAKT_CLIENT_SECRET`: Trakt OAuth client secret
+- `TRAKT_REDIRECT_URI`: Trakt OAuth callback URL, defaults to `/api/integrations/trakt/callback`
+- `TRAKT_USE_MOCK_DATA`: set `1` to force deterministic local Trakt mock sync data
+
+## Release-Readiness Notes
+
+- For a production-style release check, set `TMDB_API_KEY` and keep `TMDB_USE_MOCK_DATA=0`.
+- If `TMDB_API_KEY` is missing, ScreenLantern falls back to the local mock catalog and surfaces that state in Settings so the failure mode is explicit.
+- If Trakt OAuth credentials are missing, Settings keeps Trakt import controls visible but clearly unavailable instead of failing silently.
+- Search and Browse cards are intentionally trimmed for MVP hardening. Richer save, fit, and handoff decisions belong on Title Detail, Home, and Library.
+- Supported `Open in service` actions remain intentionally narrow and honest. Unsupported providers still show availability without a fake handoff button.
+- Trakt import controls are intentionally title-level in MVP. Bulk import cleanup, scheduled syncs, and richer conflict-resolution tooling remain post-MVP.
 
 ## TMDb Live Mode
 
@@ -120,6 +147,56 @@ npm run dev
   - per-title provider availability is reused from `TitleCache` when recently synced and also memoized in memory for 12 hours
   - provider status distinguishes `available`, `unavailable`, and `unknown`
 - When TMDb is unavailable, ScreenLantern shows friendly notices and empty states instead of crashing app routes.
+
+## Streaming-Service Handoff
+
+- ScreenLantern adds `Open in service` actions on title detail and on Home/Library cards when a reliable handoff can be constructed.
+- Handoff is derived from the existing provider-availability model and stays region-aware through `TMDB_WATCH_REGION`.
+- MVP handoff states are intentionally explicit:
+  - `openable`: availability is known and ScreenLantern can build a safe search-level provider URL
+  - `availability_only`: availability is known, but ScreenLantern does not claim a reliable open action
+  - `unknown`: provider availability itself is unavailable right now
+- Current search-level handoff support is intentionally limited to providers with reliable public search URLs:
+  - `Netflix`
+  - `Hulu`
+  - `Prime Video`
+  - `Max`
+  - `Apple TV` / `Apple TV Plus`
+  - `Peacock`
+- Other providers still show honest availability, but ScreenLantern avoids fake or broken `Open in ...` buttons when a trustworthy destination is not available.
+- Selected-service prioritization uses the signed-in viewer's provider preferences:
+  - matching services rank first
+  - a single strong option becomes the primary `Open in ...` action
+  - multiple openable services surface a `Choose service` affordance
+- Detail pages show fallback copy like `Available on Disney Plus, but direct open is unavailable.`
+- Cards stay quieter and only render handoff controls when a real openable destination exists.
+
+## Trakt Sync
+
+- ScreenLantern supports user-owned Trakt linking in Settings.
+- The Trakt connection is personal to the signed-in ScreenLantern user and never becomes household-shared state.
+- MVP import scope is intentionally narrow and explainable:
+  - watched history imports into personal `WATCHED`
+  - watchlist imports into personal `WATCHLIST`
+  - ratings map into personal taste inputs:
+    - `7-10` becomes `LIKE`
+    - `1-4` becomes `DISLIKE`
+    - `5-6` stays neutral
+- Imported data is stored with an `IMPORTED` source context so sync can be idempotent and manual ScreenLantern actions can stay authoritative.
+- ScreenLantern surfaces that source context in the personal places where it matters most:
+  - Title Detail shows whether watched, watchlist, or taste state came from Trakt or from manual ScreenLantern actions
+  - Library collection views can be filtered to `Imported from Trakt` or `Added in ScreenLantern` for the signed-in user's own profile
+- Sync behavior is manual in MVP:
+  - connect Trakt
+  - run `Sync now`
+  - later manual syncs only pull changed categories when Trakt activity timestamps indicate new work
+- Imported title state can be cleared per title without disconnecting Trakt:
+  - remove imported watched state
+  - remove imported watchlist state
+  - remove imported taste state derived from Trakt ratings
+  - manual ScreenLantern actions on the same title stay intact
+- Disconnecting Trakt removes the OAuth connection and tokens, but keeps already imported personal history and watchlist data in ScreenLantern unless the user clears or changes it manually.
+- `TRAKT_USE_MOCK_DATA=1` enables deterministic mock Trakt data for local development and Playwright.
 
 ## Recommendation Context and Group Watching
 
@@ -323,6 +400,7 @@ npm run dev
 
 ## Deferred For Post-MVP
 
+- More aggressive resurfacing surfaces or notification delivery beyond the current in-app reminder center
 - Password reset and email verification
 - OAuth providers
 - Invite email delivery and reusable invite policies
@@ -331,7 +409,8 @@ npm run dev
 - Cross-region provider reconciliation beyond the configured watch region
 - Group watch-session editing, undo, and richer shared-history UI
 - Activity reactions, comments, per-title discussion threads, and richer activity filtering
-- Streaming service sync
+- Streaming-service account linking, entitlement checks, and sync
+- Broader provider deep-link coverage beyond the currently supported search-level handoff providers
 - Deep recommendation-debug views and richer explanation timelines
 - Push, email, or cron-based “now available” notifications
 - Advanced faceted Library search, bulk cleanup workflows, and deeper reminder-rule tuning

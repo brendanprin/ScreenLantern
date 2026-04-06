@@ -22,6 +22,8 @@
 - Server-persisted recommendation context restoration
 - Search and discover flows using TMDb
 - Title details with provider availability
+- Streaming-service handoff with honest `Open in service` actions where reliable provider destinations exist
+- Trakt account linking with manual import of personal watched history, ratings, and watchlist
 - Live TMDb hardening with normalization, provider caching, and graceful fallback states
 - Personal library actions and views
 - Solo recommendation feed
@@ -47,12 +49,13 @@
 ## Explicitly Deferred
 
 - Password reset and email verification
-- OAuth providers
+- General sign-in OAuth providers
 - Full role editing beyond single-owner transfer
 - Email delivery for invites
 - Real-time presence or collaborative sessions
-- Streaming service account sync
+- Direct streaming-service account sync beyond Trakt
 - Deep provider linking and watch intent handoff
+- Background or scheduled Trakt sync infrastructure
 - Background TMDb refresh jobs and sophisticated cache invalidation
 - Push or email notifications for watchlist availability changes
 - Background or scheduled reminder generation infrastructure
@@ -60,12 +63,32 @@
 - Shared-watchlist comments, reactions, or chat-style collaboration
 - Activity reactions, comments, per-title discussion threads, and richer activity filtering
 - Cross-region provider reconciliation beyond one configured watch region
+- Streaming-provider account linking, entitlement sync, and broad deep-link support across every streaming service
 - Advanced faceted Library search and bulk cleanup workflows
 - AI chat assistant
 - Native apps
 - Offline mode
 - Group watch-session editing and richer shared-history controls
 - Deep recommendation-debug dashboards and explanation timelines
+
+## MVP Shipped Focus
+
+- The shipped MVP is centered on one loop:
+  - search or browse
+  - evaluate on title detail
+  - save or compare in the right context
+  - open in service
+- Primary decision surfaces:
+  - Home
+  - Title Detail
+  - Library
+- Supporting surfaces:
+  - Search
+  - Browse
+  - Reminders
+  - Activity
+- Search and Browse stay intentionally lighter so users are not asked to manage every action from every card.
+- Reminders and Activity stay useful, but they are intentionally de-emphasized compared with the core discovery-to-handoff flow.
 
 ## MVP Acceptance Definition
 
@@ -90,5 +113,33 @@ The MVP is considered complete when:
 - Shared watch events can be recorded without rewriting every participant's solo watched history
 - Title detail can explain who a title is best for, where likely group conflict exists, and who already signaled interest without exposing raw scoring math
 - Household members can review recent collaborative saves, watched-together moments, invite events, and governance changes in a household-safe activity feed
+- The app can surface honest `Open in service` actions on detail and key card surfaces, while falling back gracefully when provider availability exists without a supported handoff URL
+- A signed-in user can connect Trakt, manually sync personal watched history, ratings, and watchlist, and keep those imports personal to their own profile
+- Later Trakt syncs are idempotent and do not repeatedly duplicate imported interactions
+- Source-aware personal state is visible on Title Detail and lightweight Library collection views so users can tell what came from Trakt versus ScreenLantern
+- A signed-in user can clear imported watched, watchlist, or rating-derived taste state for one title without removing manual ScreenLantern state
 - The repository contains product, architecture, and roadmap documentation
 - The ticket breakdown is detailed enough to manage follow-on work
+
+## Post-MVP Scope Next
+
+- Broader streaming-provider handoff coverage and direct-provider account-linking exploration
+- Push or email reminder delivery on top of the existing in-app reminder model
+- More advanced Library cleanup tools, faceted exploration, and bulk actions
+- Richer collaborative activity filtering and deeper shared-planning controls
+- Scheduled Trakt refresh jobs and bulk import-management controls
+
+## Release-Readiness Notes
+
+- A production-style MVP check should run with live TMDb configuration, not silent mock-only assumptions.
+- Settings should make mock versus live catalog mode explicit to developers and reviewers.
+- Settings should also make Trakt live versus mock import mode explicit, and missing Trakt OAuth config should degrade into a clear disabled state.
+- Settings should clearly explain that disconnect stops future syncs but keeps already imported personal data until the user clears or changes it manually.
+- Smoke coverage should prioritize the core path:
+  - auth
+  - context switch
+  - search
+  - detail
+  - save
+  - open in service
+  - Trakt link and manual sync

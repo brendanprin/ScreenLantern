@@ -147,6 +147,7 @@ export default async function HouseholdPage() {
                   </div>
                   <UseGroupButton
                     groupId={group.id}
+                    groupName={group.name}
                     userIds={group.members.map((member) => member.user.id)}
                   />
                 </div>

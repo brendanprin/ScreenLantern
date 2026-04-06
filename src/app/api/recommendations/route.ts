@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getApiCurrentUserContext } from "@/lib/auth";
+import { env } from "@/lib/env";
+import { buildTitleHandoff } from "@/lib/services/provider-handoff";
 import { getRecommendedTitles } from "@/lib/services/recommendations";
 import { prisma } from "@/lib/prisma";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
@@ -45,5 +47,26 @@ export async function GET(request: Request) {
     householdId: user.householdId,
   });
 
-  return NextResponse.json(recommendations);
+  return NextResponse.json({
+    ...recommendations,
+    items: recommendations.items.map((item) => ({
+      ...item,
+      handoff: buildTitleHandoff(
+        item.title,
+        user.preferredProviders,
+        env.tmdbWatchRegion,
+      ),
+    })),
+    lanes: recommendations.lanes?.map((lane) => ({
+      ...lane,
+      items: lane.items.map((item) => ({
+        ...item,
+        handoff: buildTitleHandoff(
+          item.title,
+          user.preferredProviders,
+          env.tmdbWatchRegion,
+        ),
+      })),
+    })),
+  });
 }

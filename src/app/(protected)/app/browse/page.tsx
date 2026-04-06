@@ -7,7 +7,7 @@ import {
   getGenreOptions,
   getProviderOptions,
 } from "@/lib/services/catalog";
-import { getInteractionMap } from "@/lib/services/interactions";
+import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import { discoverParamsSchema } from "@/lib/validations/catalog";
 
 interface BrowsePageProps {
@@ -28,6 +28,10 @@ function buildBrowseHref(params: Record<string, string | number>) {
 
 export default async function BrowsePage({ searchParams }: BrowsePageProps) {
   const user = await getCurrentUserContext();
+  const contextBootstrap = await getRecommendationContextBootstrap({
+    userId: user.userId,
+    householdId: user.householdId,
+  });
   const parsed = discoverParamsSchema.parse(await searchParams);
   const results = await discoverTitles({
     page: parsed.page,
@@ -39,17 +43,14 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
     sortBy: parsed.sortBy,
   });
 
-  const interactionMap = await getInteractionMap(
-    user.userId,
-    results.results.map((title) => ({
-      tmdbId: title.tmdbId,
-      mediaType: title.mediaType,
-    })),
-  );
   const [genres, providers] = await Promise.all([
     getGenreOptions(parsed.mediaType),
     getProviderOptions(parsed.mediaType),
   ]);
+  const contextLabel =
+    contextBootstrap.context.activeNames.length > 0
+      ? contextBootstrap.context.activeNames.join(" + ")
+      : user.name;
 
   const yearPlaceholder =
     parsed.mediaType === "movie" ? "Release year" : "First air year";
@@ -63,7 +64,11 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
           <p className="text-sm uppercase tracking-[0.24em] text-primary/70">Browse</p>
           <CardTitle>Discover a better shortlist</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Browsing for {contextLabel}. Use filters to narrow the shortlist, then open
+            a title to compare fit, save it, or head to a service.
+          </p>
           <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <select
               className="h-11 rounded-2xl border border-input bg-background/80 px-4 py-2"
@@ -140,9 +145,7 @@ export default async function BrowsePage({ searchParams }: BrowsePageProps) {
           <TitleCard
             key={`${title.mediaType}-${title.tmdbId}`}
             title={title}
-            activeTypes={
-              interactionMap.get(`${title.mediaType}:${title.tmdbId}`) ?? []
-            }
+            showActions={false}
           />
         ))}
       </div>

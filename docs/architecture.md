@@ -12,6 +12,7 @@ Core technologies:
 - Tailwind CSS and shadcn/ui-inspired component primitives
 - Zod for request validation
 - TMDb as the external catalog metadata and provider source
+- Trakt as an optional user-owned history import source
 
 ## System Layers
 
@@ -26,6 +27,8 @@ Core technologies:
 - Services for auth/session access
 - Services for household/group management
 - Catalog services that abstract TMDb
+- Provider-handoff services that derive honest `Open in service` actions from normalized provider data
+- Trakt connection and sync services for importing personal watched history, ratings, and watchlist state
 - Interaction services for watchlist and taste signals
 - Shared-watchlist services for collaborative planning intent
 - Recommendation services for solo and group modes
@@ -35,9 +38,10 @@ Core technologies:
 
 ### Data Layer
 
-- PostgreSQL stores users, households, groups, interactions, preferences, cached metadata, and recommendation runs
+- PostgreSQL stores users, households, groups, interactions, preferences, cached metadata, recommendation runs, and Trakt connection metadata
 - Prisma provides typed database access
 - TMDb metadata is normalized into internal service types before UI consumption
+- Trakt OAuth tokens are stored encrypted and only used inside server-side integration services
 
 ## Key Design Decisions
 
@@ -78,6 +82,23 @@ Collaborative planning is modeled separately from both personal watchlists and g
 - shared saves record who saved the title and which context the title was saved for
 - shared saves can influence group resurfacing, reminders, and Library sections without becoming personal likes, dislikes, or watched history
 
+### Imported Personal History Stays Personal
+
+Trakt sync reuses the existing interaction model, but the ownership and privacy rules stay strict.
+
+- imported watched history writes personal `WATCHED` interactions
+- imported watchlist state writes personal `WATCHLIST` interactions
+- imported ratings map into personal `LIKE` or `DISLIKE` interactions using a simple threshold
+- imported rows use `SourceContext.IMPORTED` so sync can update only imported state later
+- manual ScreenLantern actions remain authoritative and should not be silently overwritten by later imports
+- imported data never becomes shared watchlist state, group watch history, or household activity automatically
+- source-aware UI is intentionally narrow:
+  - Title Detail shows imported-versus-manual personal state only for the signed-in user's own profile
+  - Library source filters are only available on the signed-in user's personal collection views, not on shared or group collections
+- imported-state cleanup is title-scoped in MVP:
+  - a protected route can delete only the signed-in user's imported `WATCHLIST`, `WATCHED`, or rating-derived taste rows for one title
+  - the cleanup route never touches manual interactions, shared watchlist entries, or group watch sessions
+
 ### Household Activity Stays Explicitly Shared
 
 The household activity feed only records events that were already intentionally shared or governance-relevant.
@@ -91,9 +112,9 @@ The household activity feed only records events that were already intentionally 
 
 Protected requests re-read the current user row from PostgreSQL instead of trusting potentially stale JWT role or household claims. This makes ownership transfer, member removal, and other governance changes show up immediately in server-rendered UI and owner-only APIs.
 
-### Provider Abstraction
+### Provider and History Abstraction
 
-TMDb is the initial source, but catalog access flows through internal services so providers can later be swapped or augmented with Watchmode, Trakt, or other APIs.
+TMDb is the initial catalog source, but catalog access flows through internal services so providers can later be swapped or augmented with Watchmode or other metadata APIs. Trakt is modeled separately as a user-owned history source rather than a catalog source.
 
 ### Normalized Catalog Contract
 
@@ -104,6 +125,37 @@ Catalog responses are normalized into a shared ScreenLantern title shape before 
 - `runtimeMinutes` represents movie runtime or TV episode runtime
 - `providerStatus` distinguishes `available`, `unavailable`, and `unknown`
 - Media-specific detail fields such as seasons remain available on `TitleDetails`
+
+### MVP Surface Hierarchy Stays Intentional
+
+ScreenLantern intentionally gives different surfaces different jobs.
+
+- Search and Browse are shortlist builders
+- Title Detail, Home, and Library are decision surfaces
+- Reminders and Activity are supporting reference surfaces
+
+That means richer context-aware mutations are intentionally concentrated where the active solo or group context is clearest, which reduces duplicated UI noise and avoids misleading “act everywhere” behavior.
+
+### Streaming Handoff Stays Honest
+
+Provider availability and provider handoff are related, but they are not treated as the same thing.
+
+- TMDb tells ScreenLantern where a title is available in a configured region
+- a separate handoff layer decides whether ScreenLantern can construct a trustworthy provider destination
+- supported providers currently use search-level URLs rather than fake title deep links
+- unsupported providers remain availability-only even when provider availability is known
+- the signed-in viewer's selected providers are used to prioritize handoff choices without leaking unrelated household data into the UI
+
+### Release-Readiness and Config Clarity
+
+The app is designed to fail honestly when streaming metadata or handoff assumptions are incomplete.
+
+- Settings surfaces whether ScreenLantern is in live TMDb mode or mock catalog mode
+- Settings also surfaces whether Trakt linking is unavailable, in mock mode, or connected for the signed-in user
+- missing live TMDb config does not silently hide behind the UI during a release review
+- missing Trakt OAuth config keeps the integration visible but clearly disabled
+- recommendation, provider, and handoff failures should land in user-facing notices or empty states rather than route crashes
+- smoke coverage is biased toward the main discovery-to-handoff path instead of broad, noisy surface coverage
 
 ### Recommendation Engine as a Service
 
@@ -215,6 +267,7 @@ This keeps “who is this best for?” honest, deterministic, and reusable witho
 4. TMDb responses are normalized into a consistent internal title model.
 5. Selected title metadata and provider snapshots may be cached locally.
 6. UI renders normalized cards with provider and interaction state overlays.
+7. Search and Browse cards stay intentionally lighter-weight, nudging richer save and comparison actions onto title detail where context is clearer.
 
 ### TMDb Cache and Resilience Flow
 
@@ -223,6 +276,33 @@ This keeps “who is this best for?” honest, deterministic, and reusable witho
 3. Per-title watch-provider payloads are cached in memory and reused from `TitleCache` for 12 hours when available.
 4. Title detail failures attempt a recent `TitleCache.metadataJson` fallback before returning an error state.
 5. Live TMDb failures surface notices to the UI rather than crashing pages.
+
+### Streaming Handoff Flow
+
+1. Title detail, Home, or Library resolves normalized provider availability for a title.
+2. The provider-handoff service dedupes provider rows, prefers the best availability bucket per provider, and checks whether a supported search-level handoff URL exists.
+3. The signed-in viewer's selected providers are used to rank likely handoff choices first.
+4. If one strong openable provider exists, the UI shows a primary `Open in ...` action.
+5. If multiple openable providers exist, the UI shows a `Choose service` affordance.
+6. If availability is known but no provider has a supported handoff strategy, the UI stays honest and shows availability-only copy instead of a broken button.
+
+### Trakt Link and Sync Flow
+
+1. The signed-in user opens Settings and starts Trakt connect.
+2. ScreenLantern redirects through Trakt OAuth and stores a short-lived state cookie for CSRF protection.
+3. The callback exchanges the code for tokens, fetches the Trakt profile, encrypts the tokens, and stores a user-owned `UserTraktConnection` row.
+4. Manual `Sync now` resolves a valid user-scoped Trakt connection, refreshing the token first if needed.
+5. The sync service reads Trakt last-activity timestamps and decides whether each category needs work:
+   - watched movies
+   - watched shows
+   - rated movies
+   - rated shows
+   - watchlist movies
+   - watchlist shows
+6. Imported titles are matched by TMDb ids where possible and normalized into `TitleCache` rows before interaction writes.
+7. Imported interaction rows are written with `SourceContext.IMPORTED` so later syncs can update imported state without trampling manual ScreenLantern changes.
+8. Title Detail can clear imported watched, watchlist, or rating-derived state for one title without disconnecting Trakt or deleting manual ScreenLantern state.
+9. Disconnect removes the stored Trakt connection and encrypted tokens but intentionally leaves already imported personal interaction rows in place.
 
 ### Personal Interaction Flow
 
@@ -348,10 +428,14 @@ This keeps “who is this best for?” honest, deterministic, and reusable witho
 - Recommendation explanations are generated in the service layer, not assembled ad hoc in page components
 - Household activity rows belong to one household and only include explicitly shared or governance-relevant events
 - Private personal interactions never appear in the household activity feed unless they were expressed through an already-shared flow
+- Trakt connections are one-to-one with a signed-in user and are never shared across household members
+- Trakt imports stay personal and never become shared watchlist state, group watch history, or household activity automatically
 - Invite creation, revocation, and member removal are owner-only operations in MVP
 - Ownership transfer is owner-only and constrained to another member in the same household
 - TMDb-specific response differences are normalized at the service layer, not in page components
 - Provider availability is always interpreted for the configured `TMDB_WATCH_REGION`
+- Handoff actions are derived from provider availability plus the signed-in viewer's provider preferences, not from a shared household setting
+- Unsupported provider handoffs stay availability-only instead of falling back to fake universal deep links
 
 ## Future AI-Ready Surface
 
@@ -388,6 +472,7 @@ These functions can later be exposed to an AI planner or chat layer without rewo
 - Event streaming for interaction analytics
 - External provider preference sync
 - Cross-region availability comparison and regional fallback logic
+- Provider account linking, entitlement sync, and richer deep-link coverage across more streaming services
 - Rich explanation history views and per-title recommendation trace screens
 - Push, email, or cron-triggered resurfacing notifications
 - Advanced faceted Library search, bulk cleanup tooling, and per-section notification preferences

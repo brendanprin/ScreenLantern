@@ -235,6 +235,10 @@ async function main() {
     where: { householdId: household.id },
   });
 
+  await prisma.userTraktConnection.deleteMany({
+    where: { householdId: household.id },
+  });
+
   await prisma.sharedWatchlistEntry.deleteMany({
     where: { householdId: household.id },
   });

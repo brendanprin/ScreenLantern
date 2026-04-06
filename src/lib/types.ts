@@ -2,6 +2,9 @@ export type MediaTypeKey = "movie" | "tv";
 export type RecommendationModeKey = "SOLO" | "GROUP";
 export type ReminderAggressivenessKey = "LIGHT" | "BALANCED" | "PROACTIVE";
 export type SharedWatchlistScopeKey = "GROUP" | "HOUSEHOLD";
+export type TraktSyncStatusKey = "SUCCESS" | "ERROR" | "NEEDS_REAUTH";
+export type LibrarySourceFilter = "all" | "imported" | "manual";
+export type PersonalInteractionOrigin = "manual" | "trakt";
 export type HouseholdActivityTypeKey =
   | "SHARED_SAVE_ADDED"
   | "SHARED_SAVE_REMOVED"
@@ -21,6 +24,43 @@ export interface ProviderInfo {
 
 export type ProviderAvailabilityStatus = "available" | "unavailable" | "unknown";
 export type CatalogResultSource = "live" | "mock" | "cache";
+export type SelectedServiceAvailability =
+  | "selected_services"
+  | "other_services"
+  | "unavailable"
+  | "unknown";
+export type ProviderHandoffStatus =
+  | "openable"
+  | "availability_only"
+  | "unavailable"
+  | "unknown";
+export type ProviderHandoffKind = "provider_search";
+
+export interface ProviderHandoffEntry {
+  providerName: string;
+  availabilityLabel?: string | null;
+  isSelectedService: boolean;
+  handoffUrl?: string | null;
+  handoffKind?: ProviderHandoffKind | null;
+}
+
+export interface TitleHandoffSummary {
+  status: ProviderHandoffStatus;
+  region: string;
+  selectedAvailability: SelectedServiceAvailability;
+  primaryOption: ProviderHandoffEntry | null;
+  openableOptions: ProviderHandoffEntry[];
+  entries: ProviderHandoffEntry[];
+  fallbackMessage?: string | null;
+}
+
+export interface PersonalInteractionSourceState {
+  WATCHLIST?: PersonalInteractionOrigin | null;
+  WATCHED?: PersonalInteractionOrigin | null;
+  LIKE?: PersonalInteractionOrigin | null;
+  DISLIKE?: PersonalInteractionOrigin | null;
+  HIDE?: PersonalInteractionOrigin | null;
+}
 
 export interface TitleSummary {
   tmdbId: number;
@@ -90,6 +130,7 @@ export interface RecommendationItem {
   score: number;
   explanations: RecommendationExplanation[];
   badges?: string[];
+  handoff?: TitleHandoffSummary | null;
 }
 
 export type RecommendationLaneId = "available_now" | "back_on_your_radar";
@@ -189,6 +230,34 @@ export interface ReminderPreferences {
   enableGroupReminders: boolean;
   aggressiveness: ReminderAggressivenessKey;
   allowDismissedReappear: boolean;
+}
+
+export interface TraktConnectionSummary {
+  isAvailable: boolean;
+  isConnected: boolean;
+  isMockMode: boolean;
+  traktUsername?: string | null;
+  lastSyncedAt?: string | null;
+  lastSyncStatus?: TraktSyncStatusKey | null;
+  lastSyncError?: string | null;
+  importedScopes: string[];
+  disconnectKeepsImportedData: boolean;
+}
+
+export interface TraktSyncResult {
+  syncedAt: string;
+  imported: {
+    watched: number;
+    watchlist: number;
+    likes: number;
+    dislikes: number;
+  };
+  cleared: {
+    watched: number;
+    watchlist: number;
+    ratings: number;
+  };
+  skippedWithoutTmdb: number;
 }
 
 export interface ReminderInboxResult {

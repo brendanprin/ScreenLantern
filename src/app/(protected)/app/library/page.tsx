@@ -3,17 +3,21 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TitleCard } from "@/components/title-card";
 import { getCurrentUserContext } from "@/lib/auth";
+import { env } from "@/lib/env";
 import { INTERACTION_LABELS } from "@/lib/constants";
 import { deriveCompactFitLabel } from "@/lib/fit-labels";
 import {
   getLibraryWorkspace,
   LIBRARY_COLLECTION_OPTIONS,
   LIBRARY_FOCUS_OPTIONS,
+  LIBRARY_SOURCE_OPTIONS,
   LIBRARY_SORT_OPTIONS,
   type LibraryCollection,
   type LibraryFocus,
+  type LibrarySource,
   type LibrarySort,
 } from "@/lib/services/library";
+import { buildTitleHandoff } from "@/lib/services/provider-handoff";
 import { cn } from "@/lib/utils";
 
 const COLLECTION_LABELS: Record<LibraryCollection, string> = {
@@ -41,6 +45,12 @@ const SORT_LABELS: Record<LibrarySort, string> = {
   runtime: "Shorter runtime",
 };
 
+const SOURCE_LABELS: Record<LibrarySource, string> = {
+  all: "All personal items",
+  imported: "Imported from Trakt",
+  manual: "Added in ScreenLantern",
+};
+
 interface LibraryPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
@@ -58,12 +68,14 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
     readSingleParam(params.collection) ?? readSingleParam(params.tab);
   const requestedFocus = readSingleParam(params.focus);
   const requestedSort = readSingleParam(params.sort);
+  const requestedSource = readSingleParam(params.source);
   const workspace = await getLibraryWorkspace({
     userId: user.userId,
     householdId: user.householdId,
     collection: requestedCollection,
     focus: requestedFocus,
     sort: requestedSort,
+    source: requestedSource,
   });
   const baseParams = new URLSearchParams();
 
@@ -71,12 +83,14 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
     collection?: string;
     focus?: string;
     sort?: string;
+    source?: string;
   }) {
     const next = new URLSearchParams(baseParams);
 
     const collection = updates.collection ?? workspace.collection;
     const focus = updates.focus ?? workspace.focus;
     const sort = updates.sort ?? workspace.sort;
+    const source = updates.source ?? workspace.source;
 
     if (collection !== "overview") {
       next.set("collection", collection);
@@ -88,6 +102,12 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
 
     if (sort !== "smart") {
       next.set("sort", sort);
+    }
+
+    if (workspace.showSourceFilters && source !== "all") {
+      next.set("source", source);
+    } else {
+      next.delete("source");
     }
 
     const query = next.toString();
@@ -182,6 +202,30 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
               ))}
             </div>
           </div>
+
+          {workspace.showSourceFilters ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-[0.24em] text-primary/70">
+                Source
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {LIBRARY_SOURCE_OPTIONS.map((option) => (
+                  <Link
+                    key={option}
+                    href={buildHref({ source: option })}
+                    className={cn(
+                      "rounded-full px-4 py-2 text-sm transition",
+                      workspace.source === option
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background/60 text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {SOURCE_LABELS[option]}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -231,6 +275,12 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
                     recommendationExplanations={item.explanations}
                     recommendationContextLabel={workspace.contextLabel}
                     recommendationBadges={item.badges}
+                    personalSourceBadge={item.personalSourceBadge}
+                    handoff={buildTitleHandoff(
+                      item.title,
+                      user.preferredProviders,
+                      env.tmdbWatchRegion,
+                    )}
                     fitSummaryLabel={deriveCompactFitLabel({
                       explanations: item.explanations,
                       isGroupMode: workspace.isGroupMode,

@@ -6,5 +6,13 @@ export const env = {
   tmdbWatchRegion: process.env.TMDB_WATCH_REGION ?? "US",
   tmdbUseMockData:
     process.env.TMDB_USE_MOCK_DATA === "1" || !process.env.TMDB_API_KEY,
+  traktClientId: process.env.TRAKT_CLIENT_ID,
+  traktClientSecret: process.env.TRAKT_CLIENT_SECRET,
+  traktRedirectUri:
+    process.env.TRAKT_REDIRECT_URI ??
+    `${
+      process.env.NEXTAUTH_URL ?? "http://localhost:3000"
+    }/api/integrations/trakt/callback`,
+  traktUseMockData:
+    process.env.TRAKT_USE_MOCK_DATA === "1",
 };
-

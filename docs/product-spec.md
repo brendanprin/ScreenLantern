@@ -69,6 +69,9 @@ These demo personas exist to make local development and recommendation tuning ea
 - Browse discover feeds
 - Filter by media type, genre, release year, runtime, popularity, and provider when available
 - Paginate results
+- Search and Browse stay intentionally lightweight in MVP:
+  - they help users build a shortlist
+  - richer save, fit, and handoff decisions happen on title detail, Home, and Library
 
 ### Title Details
 
@@ -77,6 +80,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Cast where practical
 - Seasons and episode counts for TV where practical
 - Provider availability
+- `Open in service` action when ScreenLantern can build a reliable handoff URL
 - Personal actions: watchlist, watched, like, dislike, hide
 - Cross-user fit summary for the active context
 - Household signal rows that can show:
@@ -84,6 +88,71 @@ These demo personas exist to make local development and recommendation tuning ea
   - who saved it personally
   - who saved it for the active group or household
   - who looks like a likely fit or likely conflict
+
+### Streaming-Service Handoff
+
+- ScreenLantern should help users leave the app and start watching when the provider destination is trustworthy
+- Handoff uses three honest states:
+  - available and openable
+  - available but no reliable direct handoff
+  - provider availability unknown
+- MVP handoff support is intentionally narrow:
+  - use reliable search-level service URLs when available
+  - otherwise show provider availability honestly without a fake `Open in ...` action
+- Selected-service prioritization matters:
+  - the signed-in viewer's selected services rank first
+  - if one strong option exists, show a primary `Open in ...` action
+  - if multiple openable services exist, allow the user to choose
+- Region behavior follows the configured watch region already used for provider availability
+- Supported/openable providers in MVP are currently limited to search-level handoff for:
+  - Netflix
+  - Hulu
+  - Prime Video
+  - Max
+  - Apple TV / Apple TV Plus
+  - Peacock
+- Other providers remain availability-only until ScreenLantern can support them honestly
+
+### Trakt Integration and Personal History Sync
+
+- A signed-in user can connect one Trakt account to their ScreenLantern profile
+- Trakt linking uses OAuth and stores tokens securely for that user only
+- Settings should clearly show:
+  - whether Trakt is connected
+  - last sync time and last sync status
+  - what data types are imported
+  - that imported data stays personal
+  - that disconnect stops future syncs but does not delete imported personal data automatically
+- MVP import scope:
+  - watched history
+  - watchlist
+  - ratings
+- Imported data maps into existing personal ScreenLantern concepts:
+  - watched history imports into personal `WATCHED`
+  - watchlist imports into personal `WATCHLIST`
+  - ratings import into taste signals:
+    - `7-10` becomes `LIKE`
+    - `1-4` becomes `DISLIKE`
+    - `5-6` stays neutral
+- Import behavior stays deterministic:
+  - the first sync imports all supported categories
+  - later syncs use Trakt activity timestamps to fetch changed categories only when possible
+  - imported interactions are marked as imported so repeated syncs stay idempotent
+  - manual ScreenLantern actions remain authoritative over imported state
+- Source-aware UI should stay lightweight and personal:
+  - Title Detail should show whether watched, watchlist, and taste state came from Trakt sync or manual ScreenLantern actions
+  - Library collection views can offer a lightweight `Imported from Trakt` versus `Added in ScreenLantern` filter for the signed-in user's own profile
+- Users need a small correction surface for imported data:
+  - remove imported watchlist state
+  - remove imported watched state
+  - remove imported taste state derived from ratings
+  - clearing imported state must not delete manual ScreenLantern state on the same title
+- Imported personal data does not automatically become:
+  - shared watchlist state
+  - group watch history
+  - household activity
+  - shared recommendation context
+- Disconnecting Trakt stops future syncs but keeps already imported personal data unless the user edits it manually inside ScreenLantern
 
 ### Personal Library
 
@@ -128,6 +197,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Each recommendation surfaces 1 to 3 concise explanation reasons
 - Recommendation cards show a primary reason inline plus a lightweight “Why this?” affordance
 - Recommendation and Library cards can show a small fit label such as `Best for Katie`, `Strong shared fit`, or `Shared planning pick`
+- Recommendation and Library cards can also surface lightweight `Open in ...` actions when a real handoff exists
 - Solo explanations speak to personal taste, providers, runtime, and prior watch history
 - Group explanations focus on safe overlap, shared-provider access, and whether the exact group has already watched a title together
 - Title-detail fit summaries reuse those same signals to answer:
@@ -225,16 +295,34 @@ These demo personas exist to make local development and recommendation tuning ea
 - Make reminder volume feel user-controlled instead of one-size-fits-all
 - Make the Library a faster decision surface than a plain saved-items bucket
 - Make collaborative changes visible without turning ScreenLantern into chat or a compliance log
+- Make provider handoff practical without pretending every service has a trustworthy deep link
+- Make third-party history import useful without blurring personal imported data into household-shared state
+
+## MVP Experience Boundaries
+
+- Primary decision surfaces:
+  - Home
+  - Title Detail
+  - Library
+- Supporting surfaces:
+  - Search
+  - Browse
+  - Reminders
+  - Activity
+- Search and Browse should stay calmer than the primary decision surfaces so users are not forced to manage every save or governance state before they even open a title.
+- Reminders and Activity should stay useful but visually secondary. They support the core loop instead of replacing it.
 
 ## Non-Goals
 
 - In-app video playback
-- Streaming provider deep integrations
+- Direct streaming-provider watch-history sync outside Trakt
+- Broad streaming-provider deep integrations
 - Notifications
 - Social follows or feeds
 - Native mobile apps
 - LLM chat or conversational search
 - Highly complex machine-learned ranking systems
+- Scheduled or background Trakt sync jobs
 
 ## Success Criteria For MVP
 
@@ -243,6 +331,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - A demo household can be seeded locally with multiple members
 - A household owner can safely transfer ownership to another member
 - A user can search and browse TMDb-backed content
+- Search and Browse keep the UI light enough that the core loop still funnels through detail pages for richer save, fit, and handoff decisions
 - A user can save and rate titles and see them reflected in their library
 - A user can intentionally save a title for themself, the active group, or the household without blurring those states together
 - A user can receive a useful solo recommendation feed
@@ -258,4 +347,15 @@ These demo personas exist to make local development and recommendation tuning ea
 - Shared watchlist entries can surface in group-aware recommendations, reminders, and Library sections with clear context labels
 - Title detail can explain who in the household is the best fit, who already signaled interest, and where likely group conflict exists
 - Household members can review a recent shared-history feed for collaborative saves, watched-together moments, invites, and governance changes without seeing private solo-only taste actions
+- Title detail and key cards can offer an honest `Open in service` action when a supported handoff exists and can fall back cleanly when it does not
+- A signed-in user can connect Trakt, manually sync watched history, ratings, and watchlist, and keep those imports personal to their own ScreenLantern profile
+- Repeated Trakt syncs stay idempotent and do not repeatedly duplicate imported personal interactions
 - The codebase exposes clear service functions that a future AI layer could call
+
+## Post-MVP Next
+
+- Broader provider handoff coverage where ScreenLantern can support it honestly
+- Scheduled Trakt refresh jobs and richer import controls
+- Richer reminder delivery beyond the current in-app inbox
+- More advanced Library cleanup workflows and faceted exploration
+- Deeper collaborative filtering on Activity and shared planning surfaces

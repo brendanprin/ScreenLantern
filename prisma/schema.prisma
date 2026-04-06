@@ -19,6 +19,7 @@ enum SourceContext {
   SOLO
   GROUP
   MANUAL
+  IMPORTED
 }
 
 enum RecommendationMode {
@@ -64,6 +65,12 @@ enum HouseholdActivityType {
   MEMBER_REMOVED
 }
 
+enum TraktSyncStatus {
+  SUCCESS
+  ERROR
+  NEEDS_REAUTH
+}
+
 model Household {
   id                 String              @id @default(cuid())
   name               String
@@ -77,6 +84,7 @@ model Household {
   reminderPreferences UserReminderPreference[]
   sharedWatchlistEntries SharedWatchlistEntry[]
   activities         HouseholdActivity[]
+  traktConnections   UserTraktConnection[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -105,6 +113,7 @@ model User {
   reminderPreference UserReminderPreference?
   sharedWatchlistEntries SharedWatchlistEntry[] @relation("SharedWatchlistSaver")
   householdActivities HouseholdActivity[] @relation("HouseholdActivityActor")
+  traktConnection    UserTraktConnection?
 }
 
 model HouseholdGroup {
@@ -289,6 +298,28 @@ model UserReminderPreference {
   updatedAt                   DateTime               @updatedAt
   user                        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   household                   Household              @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, updatedAt])
+}
+
+model UserTraktConnection {
+  id                   String          @id @default(cuid())
+  userId               String          @unique
+  householdId          String
+  traktUserId          String?
+  traktUsername        String?
+  accessTokenEncrypted String
+  refreshTokenEncrypted String
+  expiresAt            DateTime
+  scope                String?
+  lastActivitiesJson   Json?
+  lastSyncedAt         DateTime?
+  lastSyncStatus       TraktSyncStatus?
+  lastSyncError        String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household            Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@index([householdId, updatedAt])
 }

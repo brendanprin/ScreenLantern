@@ -277,6 +277,31 @@
 - Test expectations:
   - Title detail smoke test
 
+### Ticket 5.3: Add streaming-service handoff and honest `Open in service` actions
+
+- Priority: P1
+- Goal: Help users leave ScreenLantern and start watching when a trustworthy provider destination exists, without faking universal deep links.
+- Scope:
+  - Provider-handoff service layered on top of normalized provider availability
+  - Title-detail handoff actions with selected-service prioritization
+  - Lightweight handoff actions on recommendation and Library cards where a real open destination exists
+  - Honest fallback copy when availability is known but ScreenLantern does not support a reliable direct handoff for that provider
+- Technical notes:
+  - Reuse the existing TMDb watch-region and provider-caching model
+  - Prefer search-level provider URLs for a narrow supported-provider set instead of pretending title-deep links exist everywhere
+  - Use the signed-in viewer's selected provider preferences to rank handoff options first
+  - Keep unsupported providers availability-only until their handoff behavior can be implemented honestly
+- Acceptance criteria:
+  - Title detail can show `Open in ...` when one supported provider is a strong match
+  - Users can choose between multiple openable providers when appropriate
+  - Cards surface handoff actions only when a real handoff exists
+  - Availability-only providers do not show broken open buttons
+- Test expectations:
+  - Selected-service prioritization coverage
+  - Single-provider handoff coverage
+  - Multi-provider chooser coverage
+  - Availability-only and unknown-provider fallback coverage
+
 ## Epic 6: Personal Library and Interaction Tracking
 
 ### Ticket 6.1: Persist user-title interactions
@@ -616,6 +641,55 @@
   - Invite and ownership-transfer activity coverage
   - Household-safe feed rendering coverage
 
+### Ticket 9.4: Add Trakt account linking and personal-history sync
+
+- Priority: P1
+- Goal: Improve personal recommendation quality by importing real watched history, ratings, and watchlist state through one practical aggregation path.
+- Scope:
+  - User-owned Trakt OAuth connection flow in Settings
+  - Encrypted token storage plus sync metadata and last-sync status
+  - Manual `Sync now` flow for watched history, ratings, and watchlist import
+  - TMDb-aware title reconciliation and idempotent imported interaction writes
+  - Clear privacy copy that imported Trakt data stays personal
+- Technical notes:
+  - Keep Trakt scoped to the signed-in user, not the household as shared state
+  - Reuse `UserTitleInteraction` with `SourceContext.IMPORTED` so imported rows can be updated without trampling manual ScreenLantern actions
+  - Ratings should map into existing taste signals instead of creating a second personal-rating model in MVP
+  - First sync can be full; later syncs should use Trakt activity timestamps to reduce repeated work
+- Acceptance criteria:
+  - A signed-in user can connect and disconnect a Trakt account from Settings
+  - Manual sync imports personal watched history, watchlist, and ratings without duplicating rows on repeated syncs
+  - Imported personal data stays out of shared watchlist state, group watch history, and household activity unless the user later shares it explicitly
+  - Settings shows connection state, last sync time, and what import categories are supported
+- Test expectations:
+  - Link and unlink flow coverage
+  - Watched, watchlist, and rating import mapping coverage
+  - Duplicate-prevention and idempotent-sync coverage
+  - Recommendation-input and privacy-boundary coverage
+
+### Ticket 9.5: Add source-aware Trakt visibility and imported-state controls
+
+- Priority: P1
+- Goal: Make imported personal history trustworthy by showing what came from Trakt, what was added manually in ScreenLantern, and how imported state can be corrected safely.
+- Scope:
+  - Source-aware personal-state labels on Title Detail
+  - Lightweight Library source filter for the signed-in user's personal collection views
+  - Title-level controls to clear imported watched, watchlist, or rating-derived taste state
+  - Clear Settings copy for disconnect behavior and recommendation impact
+- Technical notes:
+  - Reuse `SourceContext.IMPORTED` instead of creating a second interaction table
+  - Clearing imported state must delete only imported rows for that user and title
+  - Shared watchlist, group watch sessions, and household activity stay out of scope for these controls
+- Acceptance criteria:
+  - Users can tell whether their personal watched, watchlist, and taste state came from Trakt or manual ScreenLantern actions
+  - Users can remove imported watchlist, watched, or rating-derived state for one title without disconnecting Trakt
+  - Disconnect UX makes it explicit that imported data already in ScreenLantern remains until the user changes it manually
+- Test expectations:
+  - Source-indicator rendering coverage
+  - Imported-state clearing coverage
+  - Manual-state preservation coverage
+  - Privacy-boundary and disconnect-copy coverage
+
 ## Epic 10: Testing, Docs, Polish, and MVP Hardening
 
 ### Ticket 10.1: Add smoke and unit coverage for MVP flows
@@ -640,6 +714,24 @@
   - Deployment/setup notes
 - Acceptance criteria:
   - Repo explains how to run and what is intentionally deferred
+
+### Ticket 10.3: Trim MVP surface noise and harden release readiness
+
+- Priority: P0
+- Goal: Make the shipped MVP feel coherent, trustworthy, and easier to verify.
+- Scope:
+  - Reduce action density on shortlist-style surfaces such as Search and Browse
+  - Improve empty, loading, and failure states on core paths
+  - Stabilize smoke selectors around named contexts instead of positional UI assumptions
+  - Clarify live versus mock catalog mode in the product and docs
+  - Publish an explicit MVP-versus-post-MVP cut line
+- Acceptance criteria:
+  - Search and Browse stay lighter than Home, Library, and Title Detail
+  - Core smoke flows remain stable across seeded runs
+  - Missing TMDb live config is legible during release review
+  - Docs clearly call out MVP shipped scope, post-MVP next work, and known limitations
+- Test expectations:
+  - Reliable smoke coverage for auth, search, detail, save, group context, and handoff rendering
 
 ## Suggested Execution Sequence
 

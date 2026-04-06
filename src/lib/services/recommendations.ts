@@ -15,17 +15,13 @@ import type {
   RecommendationItem,
   RecommendationLane,
   RecommendationLaneId,
+  SelectedServiceAvailability,
   TasteProfile,
   TitleSummary,
   WatchlistResurfaceSource,
 } from "@/lib/types";
 
 type RecommendationModeShape = "solo" | "group";
-export type SelectedServiceAvailability =
-  | "selected_services"
-  | "other_services"
-  | "unavailable"
-  | "unknown";
 
 export interface WatchlistResurfacingCandidate {
   laneId: RecommendationLaneId;

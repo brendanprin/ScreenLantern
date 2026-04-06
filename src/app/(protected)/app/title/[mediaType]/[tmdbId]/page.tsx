@@ -1,16 +1,26 @@
 import { InteractionType } from "@prisma/client";
 import { notFound } from "next/navigation";
 
+import { ImportedInteractionControls } from "@/components/imported-interaction-controls";
 import { InteractionButtons } from "@/components/interaction-buttons";
+import { ProviderHandoffActions } from "@/components/provider-handoff-actions";
 import { TitlePoster } from "@/components/title-poster";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext } from "@/lib/auth";
 import { env } from "@/lib/env";
+import {
+  getInteractionOriginForType,
+  getPersonalInteractionOriginLabel,
+} from "@/lib/personal-interaction-sources";
 import { prisma } from "@/lib/prisma";
 import { getTitleDetails } from "@/lib/services/catalog";
 import { getCurrentContextGroupWatchState } from "@/lib/services/group-watch-sessions";
-import { getInteractionMap } from "@/lib/services/interactions";
+import {
+  getInteractionMap,
+  getInteractionSourceStateMap,
+} from "@/lib/services/interactions";
+import { buildTitleHandoff } from "@/lib/services/provider-handoff";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import { getCurrentSharedWatchlistState } from "@/lib/services/shared-watchlist";
 import { getTitleFitSummary } from "@/lib/services/title-fit";
@@ -117,6 +127,40 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
     title: details,
     titleCacheId: cachedTitle.id,
   });
+  const handoff = buildTitleHandoff(
+    details,
+    user.preferredProviders,
+    env.tmdbWatchRegion,
+  );
+  const personalSourceState =
+    actingUserId === user.userId
+      ? (await getInteractionSourceStateMap({
+          userId: user.userId,
+          titleCacheIds: [cachedTitle.id],
+        })).get(cachedTitle.id) ?? null
+      : null;
+  const personalStateRows = [
+    {
+      type: InteractionType.WATCHLIST,
+      label: "On my watchlist",
+    },
+    {
+      type: InteractionType.WATCHED,
+      label: "Watched",
+    },
+    {
+      type: InteractionType.LIKE,
+      label: "Liked",
+    },
+    {
+      type: InteractionType.DISLIKE,
+      label: "Disliked",
+    },
+    {
+      type: InteractionType.HIDE,
+      label: "Hidden",
+    },
+  ].filter((item) => activeTypes.includes(item.type));
 
   return (
     <div className="space-y-6">
@@ -167,41 +211,107 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
                 showHouseholdSaveAction
               />
 
-              <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
-                <p className="text-sm font-medium text-foreground">Planning state</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {activeTypes.includes(InteractionType.WATCHLIST) ? (
-                    <Badge variant="default">On my watchlist</Badge>
-                  ) : null}
-                  {sharedWatchlistState.group?.isSaved ? (
-                    <Badge variant="secondary">
-                      Saved for {sharedWatchlistState.group.contextLabel}
-                    </Badge>
-                  ) : null}
-                  {sharedWatchlistState.household?.isSaved ? (
-                    <Badge variant="secondary">Saved for household</Badge>
-                  ) : null}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div
+                  className="rounded-2xl border border-border/70 bg-background/60 p-4"
+                  data-testid="title-personal-state"
+                >
+                  <p className="text-sm font-medium text-foreground">Your personal state</p>
+                  {actingUserId === user.userId ? (
+                    <>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {personalStateRows.map((item) => (
+                          <Badge key={item.type} variant="default">
+                            {item.label}
+                          </Badge>
+                        ))}
+                        {personalStateRows.length === 0 ? (
+                          <Badge variant="outline">No personal state yet</Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                        {personalStateRows.map((item) => {
+                          const origin = getInteractionOriginForType(
+                            personalSourceState,
+                            item.type,
+                          );
+
+                          if (!origin) {
+                            return null;
+                          }
+
+                          return (
+                            <p
+                              key={`${item.type}-source`}
+                              data-testid={`title-personal-state-${item.type.toLowerCase()}`}
+                            >
+                              <span className="font-medium text-foreground">{item.label}:</span>{" "}
+                              {getPersonalInteractionOriginLabel({
+                                interactionType: item.type,
+                                origin,
+                              })}
+                            </p>
+                          );
+                        })}
+                        {personalStateRows.length === 0 ? (
+                          <p>
+                            This title does not currently have personal watched, watchlist, or
+                            taste state for your account.
+                          </p>
+                        ) : null}
+                      </div>
+                      {personalSourceState ? (
+                        <div className="mt-4">
+                          <ImportedInteractionControls
+                            title={details}
+                            sourceState={personalSourceState}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Source-aware Trakt details are only shown for your own personal profile.
+                    </p>
+                  )}
                 </div>
-                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                  {sharedWatchlistState.group?.isSaved ? (
-                    <p>
-                      Saved for {sharedWatchlistState.group.contextLabel} by{" "}
-                      {formatList(sharedWatchlistState.group.savedByNames)}.
-                    </p>
-                  ) : null}
-                  {sharedWatchlistState.household?.isSaved ? (
-                    <p>
-                      Saved for the household by{" "}
-                      {formatList(sharedWatchlistState.household.savedByNames)}.
-                    </p>
-                  ) : null}
-                  {!activeTypes.includes(InteractionType.WATCHLIST) &&
-                  !sharedWatchlistState.group?.isSaved &&
-                  !sharedWatchlistState.household?.isSaved ? (
-                    <p>
-                      This title is not currently saved in your personal or shared planning lists.
-                    </p>
-                  ) : null}
+
+                <div className="rounded-2xl border border-border/70 bg-background/60 p-4">
+                  <p className="text-sm font-medium text-foreground">Shared planning</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {sharedWatchlistState.group?.isSaved ? (
+                      <Badge variant="secondary">
+                        Saved for {sharedWatchlistState.group.contextLabel}
+                      </Badge>
+                    ) : null}
+                    {sharedWatchlistState.household?.isSaved ? (
+                      <Badge variant="secondary">Saved for household</Badge>
+                    ) : null}
+                    {!sharedWatchlistState.group?.isSaved &&
+                    !sharedWatchlistState.household?.isSaved ? (
+                      <Badge variant="outline">No shared planning state</Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    {sharedWatchlistState.group?.isSaved ? (
+                      <p>
+                        Saved for {sharedWatchlistState.group.contextLabel} by{" "}
+                        {formatList(sharedWatchlistState.group.savedByNames)}.
+                      </p>
+                    ) : null}
+                    {sharedWatchlistState.household?.isSaved ? (
+                      <p>
+                        Saved for the household by{" "}
+                        {formatList(sharedWatchlistState.household.savedByNames)}.
+                      </p>
+                    ) : null}
+                    {!sharedWatchlistState.group?.isSaved &&
+                    !sharedWatchlistState.household?.isSaved ? (
+                      <p>
+                        This title is not currently saved for the active group or the household.
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
@@ -319,38 +429,29 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
           <CardHeader>
             <CardTitle>Where to watch</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {details.providers.length > 0 ? (
-              details.providers.map((provider) => (
+          <CardContent className="space-y-4">
+            <ProviderHandoffActions handoff={handoff} variant="detail" />
+
+            {handoff.entries.length > 0 ? (
+              handoff.entries.map((provider) => (
                 <div
-                  key={`${provider.name}-${provider.type ?? ""}`}
+                  key={provider.providerName}
                   className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-background/60 px-4 py-3 text-sm"
                 >
-                  <span>{provider.name}</span>
-                  {provider.type ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>{provider.providerName}</span>
+                    {provider.isSelectedService ? (
+                      <Badge variant="secondary">Your service</Badge>
+                    ) : null}
+                  </div>
+                  {provider.availabilityLabel ? (
                     <span className="text-muted-foreground">
-                      {provider.type === "flatrate"
-                        ? "Included"
-                        : provider.type === "free"
-                          ? "Free"
-                          : provider.type === "ads"
-                            ? "With ads"
-                            : provider.type === "rent"
-                              ? "Rent"
-                              : "Buy"}
+                      {provider.availabilityLabel}
                     </span>
                   ) : null}
                 </div>
               ))
-            ) : details.providerStatus === "unavailable" ? (
-              <p className="text-sm text-muted-foreground">
-                No watch providers were found for {env.tmdbWatchRegion}.
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Provider availability is currently unavailable for {env.tmdbWatchRegion}.
-              </p>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       </div>
