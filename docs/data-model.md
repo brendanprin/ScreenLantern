@@ -86,6 +86,14 @@ In the current MVP implementation, membership is represented directly on the `Us
 - Uses the same row for manual sync, opportunistic app-open sync, and future scheduler-triggered sync
 - Does not store an unbounded sync-history log in MVP; Settings reads the compact last-sync summary instead
 
+### AiConversation
+
+- One persisted assistant thread per signed-in user in MVP
+- Stores a lightweight transcript plus the last active recommendation context snapshot
+- Keeps assistant memory user-owned and household-scoped without creating a full multi-thread chat system
+- Exists to support refinement follow-ups such as “something lighter,” “only movies,” or “what about something we saved already?”
+- Does not store raw provider entitlements, raw recommendation score traces, or cross-household data
+
 ### SharedWatchlistEntry
 
 - Persisted shared planning row for one title, one saver, and one shared context
@@ -175,6 +183,17 @@ In the current MVP implementation, membership is represented directly on the `Us
   - `lastSyncedAt`
   - `lastSyncStatus`
   - `lastSyncError`
+  - `createdAt`
+  - `updatedAt`
+
+### Assistant Conversation
+
+- `AiConversation`
+  - `id`
+  - `userId`
+  - `householdId`
+  - `messagesJson`
+  - `lastContextJson`
   - `createdAt`
   - `updatedAt`
 

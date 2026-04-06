@@ -27,7 +27,7 @@ Core technologies:
 - Services for auth/session access
 - Services for household/group management
 - Catalog services that abstract TMDb
-- Provider-handoff services that derive honest `Open in service` actions from normalized provider data
+- Provider-handoff services that derive honest direct, search-level, or availability-only actions from normalized provider data
 - Trakt connection and sync services for importing personal watched history, ratings, and watchlist state
 - Interaction services for watchlist and taste signals
 - Shared-watchlist services for collaborative planning intent
@@ -35,6 +35,7 @@ Core technologies:
 - Library workspace services that reuse recommendation, provider, and interaction signals
 - Title-fit services that derive cross-user comparison and conflict summaries from existing state
 - Activity services that emit and read household-safe collaborative history
+- AI assistant orchestration service that calls structured ScreenLantern tools instead of replacing recommendation logic
 
 ### Data Layer
 
@@ -169,7 +170,7 @@ Recommendation results carry structured explanation objects rather than ad hoc U
 - `summary` is short, human-readable card copy
 - `detail` gives one extra layer of context for the lightweight “Why this?” disclosure
 
-This keeps recommendation transparency close to the scoring rules and makes the same primitives reusable for future AI or debugging surfaces.
+This keeps recommendation transparency close to the scoring rules and makes the same primitives reusable for the current assistant layer and future debugging surfaces.
 
 ### Watchlist Resurfacing as a Recommendation Layer
 
@@ -280,11 +281,17 @@ This keeps “who is this best for?” honest, deterministic, and reusable witho
 ### Streaming Handoff Flow
 
 1. Title detail, Home, or Library resolves normalized provider availability for a title.
-2. The provider-handoff service dedupes provider rows, prefers the best availability bucket per provider, and checks whether a supported search-level handoff URL exists.
-3. The signed-in viewer's selected providers are used to rank likely handoff choices first.
-4. If one strong openable provider exists, the UI shows a primary `Open in ...` action.
-5. If multiple openable providers exist, the UI shows a `Choose service` affordance.
-6. If availability is known but no provider has a supported handoff strategy, the UI stays honest and shows availability-only copy instead of a broken button.
+2. The provider-handoff service dedupes provider rows, prefers the best availability bucket per provider, normalizes provider aliases, and resolves a provider-specific handoff classification.
+3. Actionable provider modes are intentionally simple:
+   - `title_direct`
+   - `provider_search`
+   - `provider_home`
+   - `availability_only`
+4. The signed-in viewer's selected providers are used to rank likely handoff choices first, with normalized aliases such as `Prime Video` / `Amazon Prime Video` treated as the same service.
+5. Higher-confidence direct and search actions rank ahead of lower-confidence provider-home actions.
+6. If one strong actionable provider exists, the UI shows a primary action label that matches the handoff mode, such as `Open in ...` or `Search in ...`.
+7. If multiple actionable providers exist, the UI shows a `Choose service` affordance.
+8. If availability is known but no provider has a supported handoff strategy, the UI stays honest and shows availability-only copy instead of a broken button.
 
 ### Trakt Link and Sync Flow
 
@@ -448,25 +455,38 @@ This keeps “who is this best for?” honest, deterministic, and reusable witho
 - Provider availability is always interpreted for the configured `TMDB_WATCH_REGION`
 - Handoff actions are derived from provider availability plus the signed-in viewer's provider preferences, not from a shared household setting
 - Unsupported provider handoffs stay availability-only instead of falling back to fake universal deep links
+- Current verified provider coverage is intentionally conservative and search-level only:
+  - Netflix
+  - Hulu
+  - Prime Video
+  - Max
+  - Apple TV / Apple TV Plus
+  - Peacock
+  - Paramount Plus
+  - Plex
+  - Tubi TV
+  - YouTube
+- Direct provider account linking and broader provider-home or title-deep-link strategies remain future work
 
-## Future AI-Ready Surface
+## AI Assistant Surface
 
-The MVP prepares the following service-oriented contract:
+The assistant reuses a small service-oriented tool contract:
 
 - `searchTitles(input)`
-- `discoverTitles(input)`
 - `getTitleDetails(input)`
-- `getAvailableProviders(input)`
-- `getUserTasteProfile(input)`
-- `getGroupTasteProfile(input)`
 - `getRecommendedTitles(input)`
-- `saveToWatchlist(input)`
-- `markWatched(input)`
-- `likeTitle(input)`
-- `dislikeTitle(input)`
-- `hideTitle(input)`
+- `getLibraryWorkspace(input)`
+- `getTitleFitSummary(input)`
+- `getTraktConnectionSummary(input)`
 
-These functions can later be exposed to an AI planner or chat layer without reworking the domain model.
+The assistant itself is intentionally thin:
+
+- one user-owned persisted conversation row
+- a server-side orchestration layer
+- a deterministic mock-answer path for local testing
+- a live model path that only uses grounded tool outputs
+
+The assistant does not become a new source of truth. Recommendation ranking, fit summaries, library state, watchlist state, provider availability, and Trakt-import ownership all remain in their existing domain services.
 
 ## Security Posture
 
@@ -486,6 +506,7 @@ These functions can later be exposed to an AI planner or chat layer without rewo
 - Cross-region availability comparison and regional fallback logic
 - Provider account linking, entitlement sync, and richer deep-link coverage across more streaming services
 - Rich explanation history views and per-title recommendation trace screens
+- Richer AI memory, multi-thread history, and broader agent tooling beyond the current recommendation assistant
 - Push, email, or cron-triggered resurfacing notifications
 - Advanced faceted Library search, bulk cleanup tooling, and per-section notification preferences
 - Custom reminder cooldown windows, digest schedules, and per-group reminder policies

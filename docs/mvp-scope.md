@@ -22,7 +22,7 @@
 - Server-persisted recommendation context restoration
 - Search and discover flows using TMDb
 - Title details with provider availability
-- Streaming-service handoff with honest `Open in service` actions where reliable provider destinations exist
+- Streaming-service handoff with honest direct/search actions where reliable provider destinations exist
 - Trakt account linking with manual import plus configurable automatic freshness for personal watched history, ratings, and watchlist
 - Live TMDb hardening with normalization, provider caching, and graceful fallback states
 - Personal library actions and views
@@ -37,6 +37,7 @@
 - Group watch-session modeling separate from personal watched history
 - Cross-user fit summaries and household signal rows on title detail
 - Household activity/history feed for collaborative planning and governance events
+- AI recommendation assistant with one active thread per user, grounded result cards, and lightweight refinement
 - Provider preference settings
 
 ### Quality
@@ -65,7 +66,6 @@
 - Cross-region provider reconciliation beyond one configured watch region
 - Streaming-provider account linking, entitlement sync, and broad deep-link support across every streaming service
 - Advanced faceted Library search and bulk cleanup workflows
-- AI chat assistant
 - Native apps
 - Offline mode
 - Group watch-session editing and richer shared-history controls
@@ -113,7 +113,7 @@ The MVP is considered complete when:
 - Shared watch events can be recorded without rewriting every participant's solo watched history
 - Title detail can explain who a title is best for, where likely group conflict exists, and who already signaled interest without exposing raw scoring math
 - Household members can review recent collaborative saves, watched-together moments, invite events, and governance changes in a household-safe activity feed
-- The app can surface honest `Open in service` actions on detail and key card surfaces, while falling back gracefully when provider availability exists without a supported handoff URL
+- The app can surface honest provider handoff actions on detail and key card surfaces, while falling back gracefully when provider availability exists without a supported handoff URL
 - A signed-in user can connect Trakt, manually sync personal watched history, ratings, and watchlist, and keep those imports personal to their own profile
 - Later Trakt syncs are idempotent and do not repeatedly duplicate imported interactions
 - A signed-in user can choose `Off`, `Daily`, or `On sign in or app open` Trakt freshness modes in Settings
@@ -122,12 +122,16 @@ The MVP is considered complete when:
 - A signed-in user can clear imported watched, watchlist, or rating-derived taste state for one title without removing manual ScreenLantern state
 - Settings shows a compact last-sync review so users can tell whether the last Trakt sync was manual or automatic, whether anything changed, and which recent titles were imported
 - MVP keeps only the latest sync review summary instead of a full per-sync history log
+- A signed-in user can open the assistant page and get grounded solo or group recommendations based on the current persisted context
+- Assistant follow-ups can refine by runtime, media type, saved-state, and “our services” constraints without turning ScreenLantern into a general chatbot
 - The repository contains product, architecture, and roadmap documentation
 - The ticket breakdown is detailed enough to manage follow-on work
 
 ## Post-MVP Scope Next
 
-- Broader streaming-provider handoff coverage and direct-provider account-linking exploration
+- Additional provider coverage where ScreenLantern can verify stable direct, search, or provider-home behavior
+- Richer assistant memory, multi-thread chat history, and broader AI intents beyond grounded recommendation help
+- Direct-provider account-linking exploration
 - Push or email reminder delivery on top of the existing in-app reminder model
 - More advanced Library cleanup tools, faceted exploration, and bulk actions
 - Richer collaborative activity filtering and deeper shared-planning controls

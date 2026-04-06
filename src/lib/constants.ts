@@ -2,6 +2,7 @@ export const APP_NAME = "ScreenLantern";
 
 export const NAV_ITEMS = [
   { href: "/app", label: "Home" },
+  { href: "/app/assistant", label: "Assistant" },
   { href: "/app/search", label: "Search" },
   { href: "/app/browse", label: "Browse" },
   { href: "/app/library", label: "Library" },
@@ -19,6 +20,9 @@ export const PROVIDER_OPTIONS = [
   "Apple TV Plus",
   "Peacock",
   "Paramount Plus",
+  "Plex",
+  "Tubi TV",
+  "YouTube",
 ];
 
 export const INTERACTION_LABELS = {

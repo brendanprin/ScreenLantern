@@ -13,7 +13,7 @@ ScreenLantern does not stream content. Its responsibilities are discovery, organ
 - Preserve separate taste profiles for each household member
 - Support shared recommendation contexts for custom household combinations
 - Surface provider availability so users can decide where to watch
-- Build an architecture that can later power an AI recommendation/chat layer
+- Provide a grounded recommendation assistant that reuses existing app logic for solo and group decisions
 
 ## Primary Users
 
@@ -80,7 +80,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Cast where practical
 - Seasons and episode counts for TV where practical
 - Provider availability
-- `Open in service` action when ScreenLantern can build a reliable handoff URL
+- Provider handoff action when ScreenLantern can build a reliable open, search, or browse destination
 - Personal actions: watchlist, watched, like, dislike, hide
 - Cross-user fit summary for the active context
 - Household signal rows that can show:
@@ -92,26 +92,39 @@ These demo personas exist to make local development and recommendation tuning ea
 ### Streaming-Service Handoff
 
 - ScreenLantern should help users leave the app and start watching when the provider destination is trustworthy
-- Handoff uses three honest states:
-  - available and openable
-  - available but no reliable direct handoff
-  - provider availability unknown
-- MVP handoff support is intentionally narrow:
-  - use reliable search-level service URLs when available
-  - otherwise show provider availability honestly without a fake `Open in ...` action
+- Handoff uses honest provider-specific classifications:
+  - `title_direct`: the title can be opened directly in the provider
+  - `provider_search`: provider search can be opened for the title
+  - `provider_home`: only the provider home or browse surface can be opened
+  - `availability_only`: availability is known, but ScreenLantern does not claim a reliable handoff action
+  - `unknown`: provider availability itself is unavailable right now
+- Current handoff support is intentionally narrow:
+  - use verified public search-level service URLs where they are stable and useful
+  - keep providers availability-only when ScreenLantern cannot support them honestly
 - Selected-service prioritization matters:
   - the signed-in viewer's selected services rank first
-  - if one strong option exists, show a primary `Open in ...` action
-  - if multiple openable services exist, allow the user to choose
+  - normalized provider aliases can still count as the same service for handoff ranking
+  - if one strong option exists, show a primary action such as `Open in ...` or `Search in ...`
+  - if multiple actionable services exist, allow the user to choose
+  - lower-confidence provider-home-only actions should not clutter the chooser when stronger direct or search destinations exist
 - Region behavior follows the configured watch region already used for provider availability
-- Supported/openable providers in MVP are currently limited to search-level handoff for:
+- Supported/actionable providers are currently limited to verified search-level handoff for:
   - Netflix
   - Hulu
   - Prime Video
   - Max
   - Apple TV / Apple TV Plus
   - Peacock
+  - Paramount Plus
+  - Plex
+  - Tubi TV
+  - YouTube
 - Other providers remain availability-only until ScreenLantern can support them honestly
+- Detail pages are the richest handoff surface:
+  - they show the primary provider action
+  - they can show a compact chooser for multiple actionable services
+  - they can label provider rows as `Search available` or `Availability only`
+- Cards on Home and Library should stay lighter-weight and only show actions when a real handoff exists
 
 ### Trakt Integration and Personal History Sync
 
@@ -219,7 +232,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Each recommendation surfaces 1 to 3 concise explanation reasons
 - Recommendation cards show a primary reason inline plus a lightweight “Why this?” affordance
 - Recommendation and Library cards can show a small fit label such as `Best for Katie`, `Strong shared fit`, or `Shared planning pick`
-- Recommendation and Library cards can also surface lightweight `Open in ...` actions when a real handoff exists
+- Recommendation and Library cards can also surface lightweight provider handoff actions such as `Open in ...` or `Search in ...` when a real handoff exists
 - Solo explanations speak to personal taste, providers, runtime, and prior watch history
 - Group explanations focus on safe overlap, shared-provider access, and whether the exact group has already watched a title together
 - Title-detail fit summaries reuse those same signals to answer:
@@ -245,6 +258,39 @@ These demo personas exist to make local development and recommendation tuning ea
   - solo vs group reminder generation
   - resurfacing pace
   - whether dismissed reminders can return after a cooldown
+
+### AI Recommendation Assistant (v1)
+
+- ScreenLantern includes a dedicated assistant page in the protected app shell
+- The assistant is recommendation-focused, not a general-purpose chatbot
+- MVP thread model is intentionally simple:
+  - one active conversation thread per signed-in user
+  - lightweight follow-up refinement inside that thread
+- The assistant must stay grounded in:
+  - the signed-in user’s current solo or group recommendation context
+  - current household-safe saved-state and watch-state boundaries
+  - live TMDb catalog and provider availability
+  - existing provider-handoff honesty rules
+  - personal imported Trakt history where connected
+- Supported v1 intents:
+  - ask for a recommendation
+  - refine by runtime, media type, mood, or service constraints
+  - ask for something like another title
+  - ask for something from personal watchlist, shared watchlist, or Library
+  - ask why a title is a good fit for the current context
+- Tool/service contract used by the assistant:
+  - `get_active_context`
+  - `search_titles`
+  - `get_recommended_titles`
+  - `get_watchlist_candidates`
+  - `get_library_candidates`
+  - `get_fit_summary`
+- Answer style stays calm and practical:
+  - concise recommendation language
+  - short why-this reasoning
+  - honest provider/open-in/search availability wording
+  - no fake unanimity for groups
+- Result rendering uses structured ScreenLantern title cards where it helps, with click-through to detail and provider handoff preserved
 - `Available now` reminders stay the highest-value default signal unless that category is turned off
 - Dismissed reminder reappearance is deterministic in MVP: when enabled, the same reminder can return after a fixed cooldown if it still fits the active context
 
@@ -342,7 +388,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Notifications
 - Social follows or feeds
 - Native mobile apps
-- LLM chat or conversational search
+- Broad general-purpose LLM chat or unrelated conversational search
 - Highly complex machine-learned ranking systems
 - Full scheduler or job-runner infrastructure beyond the built-in opportunistic and internal Trakt sync paths
 
@@ -369,16 +415,18 @@ These demo personas exist to make local development and recommendation tuning ea
 - Shared watchlist entries can surface in group-aware recommendations, reminders, and Library sections with clear context labels
 - Title detail can explain who in the household is the best fit, who already signaled interest, and where likely group conflict exists
 - Household members can review a recent shared-history feed for collaborative saves, watched-together moments, invites, and governance changes without seeing private solo-only taste actions
-- Title detail and key cards can offer an honest `Open in service` action when a supported handoff exists and can fall back cleanly when it does not
+- Title detail and key cards can offer honest provider handoff actions when a supported handoff exists and can fall back cleanly when it does not
 - A signed-in user can connect Trakt, manually sync watched history, ratings, and watchlist, and keep those imports personal to their own ScreenLantern profile
 - A signed-in user can choose a Trakt freshness mode and understand when imported history may be stale
 - Repeated Trakt syncs stay idempotent and do not repeatedly duplicate imported personal interactions
-- The codebase exposes clear service functions that a future AI layer could call
+- A signed-in user can use the grounded recommendation assistant for solo or group decisions without crossing personal, shared, and household boundaries
 
 ## Post-MVP Next
 
-- Broader provider handoff coverage where ScreenLantern can support it honestly
+- Additional provider coverage where ScreenLantern can verify stable direct, search, or provider-home behavior
+- Direct provider account-linking exploration where providers officially support it
 - Scheduled Trakt refresh jobs and richer import controls
+- Richer assistant memory, multi-thread history, and more advanced agentic planning
 - Richer reminder delivery beyond the current in-app inbox
 - More advanced Library cleanup workflows and faceted exploration
 - Deeper collaborative filtering on Activity and shared planning surfaces

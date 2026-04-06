@@ -2,6 +2,13 @@ export const env = {
   authSecret: process.env.AUTH_SECRET,
   databaseUrl: process.env.DATABASE_URL,
   nextAuthUrl: process.env.NEXTAUTH_URL ?? "http://localhost:3000",
+  aiProvider: process.env.AI_PROVIDER ?? "openai",
+  aiBaseUrl: process.env.AI_BASE_URL,
+  aiApiKey: process.env.AI_API_KEY ?? process.env.OPENAI_API_KEY,
+  aiModel: process.env.AI_MODEL ?? process.env.OPENAI_MODEL,
+  openAiApiKey: process.env.OPENAI_API_KEY,
+  openAiModel: process.env.OPENAI_MODEL,
+  aiUseMockData: process.env.AI_USE_MOCK_DATA === "1",
   tmdbApiKey: process.env.TMDB_API_KEY,
   tmdbWatchRegion: process.env.TMDB_WATCH_REGION ?? "US",
   tmdbUseMockData:

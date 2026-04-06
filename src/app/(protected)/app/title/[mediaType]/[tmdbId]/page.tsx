@@ -20,7 +20,10 @@ import {
   getInteractionMap,
   getInteractionSourceStateMap,
 } from "@/lib/services/interactions";
-import { buildTitleHandoff } from "@/lib/services/provider-handoff";
+import {
+  buildTitleHandoff,
+  getProviderHandoffSupportLabel,
+} from "@/lib/services/provider-handoff";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import { getCurrentSharedWatchlistState } from "@/lib/services/shared-watchlist";
 import { getTitleFitSummary } from "@/lib/services/title-fit";
@@ -443,6 +446,9 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
                     {provider.isSelectedService ? (
                       <Badge variant="secondary">Your service</Badge>
                     ) : null}
+                    <Badge variant="outline">
+                      {getProviderHandoffSupportLabel(provider.handoffKind)}
+                    </Badge>
                   </div>
                   {provider.availabilityLabel ? (
                     <span className="text-muted-foreground">

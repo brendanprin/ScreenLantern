@@ -89,6 +89,18 @@ async function useSoloProfile(page: Page) {
   ]);
 }
 
+async function askAssistant(page: Page, message: string) {
+  await page.getByLabel("Ask for a recommendation").fill(message);
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/assistant") &&
+        response.request().method() === "POST",
+    ),
+    page.getByRole("button", { name: "Ask ScreenLantern" }).click(),
+  ]);
+}
+
 function uniqueEmail(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.com`;
 }
@@ -97,6 +109,8 @@ test("redirects anonymous users away from protected routes", async ({ page }) =>
   await page.goto("/sign-in");
   await expect(page.getByLabel("Email")).toBeVisible();
   await page.goto("/app", { waitUntil: "commit" }).catch(() => null);
+  await expect(page).toHaveURL(/\/sign-in$/);
+  await page.goto("/app/assistant", { waitUntil: "commit" }).catch(() => null);
   await expect(page).toHaveURL(/\/sign-in$/);
 });
 
@@ -151,7 +165,7 @@ test("search and detail flow works", async ({ page }) => {
   await page.getByRole("link", { name: "Dune" }).first().click();
   await expect(page.getByRole("heading", { name: "Dune" })).toBeVisible();
   await expect(page.getByText("Where to watch")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open in Max" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Search in Max" })).toBeVisible();
   await expect(page.getByText("Choose service")).toBeVisible();
 });
 
@@ -163,11 +177,12 @@ test("streaming handoff stays honest on detail and library surfaces", async ({
   await expect(
     page.getByText("Available on Disney Plus, but direct open is unavailable."),
   ).toBeVisible();
+  await expect(page.getByText("Availability only")).toBeVisible();
 
   await page.goto("/app/library?collection=LIKE");
   const duneCard = page.getByTestId("library-card-collection-movie-11");
   await expect(duneCard).toBeVisible();
-  await expect(duneCard.getByRole("link", { name: "Open in Max" })).toBeVisible();
+  await expect(duneCard.getByRole("link", { name: "Search in Max" })).toBeVisible();
 });
 
 test("watchlist and taste actions work on a title detail page", async ({ page }) => {
@@ -201,6 +216,64 @@ test("group recommendation happy path is visible from household mode", async ({
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Recommendations for Brendan + Palmer" }),
+  ).toBeVisible();
+});
+
+test("assistant supports solo recommendation refinement and why-this follow-up", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/household");
+  await useSoloProfile(page);
+  await page.goto("/app/assistant");
+  await expect(
+    page.getByRole("heading", {
+      name: "Ask ScreenLantern for grounded picks instead of starting from a blank slate.",
+    }),
+  ).toBeVisible();
+  await expect(page.getByTestId("assistant-context-label")).toHaveText("For Brendan");
+
+  await askAssistant(page, "Give me something funny under 2 hours.");
+  const latestAnswer = page.getByTestId("assistant-message-assistant").last();
+  await expect(latestAnswer).toBeVisible();
+  await expect(latestAnswer.getByTestId("assistant-card")).toHaveCount(3);
+
+  await askAssistant(page, "Why this?");
+  const whyAnswer = page.getByTestId("assistant-message-assistant").last();
+  await expect(whyAnswer).toContainText(/Brendan|fit/i);
+
+  await askAssistant(page, "Give me 3 options instead.");
+  const refinedAnswer = page.getByTestId("assistant-message-assistant").last();
+  await expect(refinedAnswer.getByTestId("assistant-card")).toHaveCount(3);
+});
+
+test("assistant respects group context, shared watchlist state, and provider-aware handoff", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/household");
+  await useSavedGroup(page, "Brendan + Palmer");
+
+  await page.goto("/app/title/movie/11");
+  await page.getByRole("button", { name: "Save for current group" }).click();
+
+  await page.goto("/app/assistant");
+  await expect(page.getByTestId("assistant-context-label")).toHaveText(
+    "For Brendan + Palmer",
+  );
+
+  await askAssistant(page, "What should Brendan + Palmer watch tonight on our services?");
+  const groupAnswer = page.getByTestId("assistant-message-assistant").last();
+  await expect(groupAnswer).toContainText("Brendan + Palmer");
+
+  await askAssistant(page, "What about something we saved already?");
+  const sharedWatchlistAnswer = page.getByTestId("assistant-message-assistant").last();
+  await expect(sharedWatchlistAnswer).toContainText(/Saved by|Saved for/);
+  await expect(sharedWatchlistAnswer.getByTestId("assistant-card").first()).toBeVisible();
+  await expect(
+    sharedWatchlistAnswer
+      .getByRole("link", { name: /Search in Max|Search in Netflix/ })
+      .first(),
   ).toBeVisible();
 });
 

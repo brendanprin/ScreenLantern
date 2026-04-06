@@ -15,6 +15,7 @@ export default defineConfig({
     env: {
       ...process.env,
       NEXTAUTH_URL: "http://localhost:3100",
+      AI_USE_MOCK_DATA: "1",
       TMDB_USE_MOCK_DATA: "1",
       TRAKT_USE_MOCK_DATA: "1",
       TRAKT_REDIRECT_URI: "http://localhost:3100/api/integrations/trakt/callback",

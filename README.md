@@ -1,8 +1,8 @@
 # ScreenLantern
 
-ScreenLantern is a household streaming discovery app that reduces decision fatigue. It helps users search across movies and TV, see where a title is available, save and rate titles, and generate recommendations for a single person or a household combination.
+ScreenLantern is a household streaming discovery app that reduces decision fatigue. It helps users search across movies and TV, see where a title is available, save and rate titles, generate recommendations for a single person or a household combination, and ask a grounded recommendation assistant what to watch next.
 
-The MVP is intentionally focused on discovery, library management, explainable recommendation logic, and practical handoff into a streaming service. Playback, direct per-streamer account linking, and AI chat are explicitly deferred.
+The current product is intentionally focused on discovery, library management, explainable recommendation logic, a narrow AI recommendation assistant, and practical handoff into a streaming service. Playback and direct per-streamer account linking remain deferred.
 
 ## Stack
 
@@ -23,7 +23,7 @@ The MVP is intentionally focused on discovery, library management, explainable r
 - Server-persisted active recommendation context that restores across sessions and devices
 - Search and browse flows across movies and TV
 - Title detail pages with metadata and provider availability
-- Streaming-service handoff with honest `Open in service` actions when ScreenLantern can build a reliable destination URL
+- Streaming-service handoff with honest `Open in ...`, `Search in ...`, or availability-only behavior based on the provider strategy ScreenLantern can actually support
 - Trakt account linking with manual sync plus configurable sync freshness for personal watched history, ratings, and watchlist import
 - Last-sync review in Settings with manual-versus-automatic labeling, recent import preview, and no-change/failure summaries
 - Personal library actions: watchlist, watched, like, dislike, hide
@@ -31,6 +31,7 @@ The MVP is intentionally focused on discovery, library management, explainable r
 - Combined household recommendation mode
 - Group watch-session modeling that stays distinct from solo watched history
 - Recommendation cards with concise explanation reasons plus a lightweight “Why this?” disclosure
+- AI recommendation assistant page with one active thread per signed-in user, active solo/group context labeling, structured result cards, and grounded follow-up refinement
 - Home resurfacing lanes for watchlist titles that are back on your radar or available now on your services
 - In-app reminder center for newly available and resurfaced watchlist titles in the current solo or group context
 - Reminder preferences for category toggles, solo/group tuning, resurfacing pace, and dismissed-reminder reappearance
@@ -46,7 +47,7 @@ The MVP is intentionally focused on discovery, library management, explainable r
   - Search or browse
   - Open a title detail page
   - Save or compare in the right context
-  - Open in a streaming service
+  - Hand off into a streaming service
 - Home, Library, and Title Detail are the primary decision surfaces in MVP.
 - Search and Browse intentionally stay lighter-weight shortlist surfaces. They help users narrow candidates first, then move into detail for richer actions.
 - Reminders and Activity are useful supporting surfaces, but they are intentionally secondary to the core discovery-to-handoff flow.
@@ -247,6 +248,13 @@ Production-like local caveat:
 - `AUTH_SECRET`: long random secret used by Auth.js
 - `AUTH_TRUST_HOST`: set to `true` for local dev
 - `NEXTAUTH_URL`: base URL for auth callbacks
+- `AI_PROVIDER`: assistant model provider, `openai` or `ollama`, defaults to `openai`
+- `AI_BASE_URL`: optional custom chat-completions base URL; defaults to `https://api.openai.com/v1` for OpenAI and `http://localhost:11434/v1` for Ollama
+- `AI_API_KEY`: generic assistant API key override
+- `AI_MODEL`: assistant chat model, defaults to `gpt-5.4-mini` for OpenAI and `llama3.2` for Ollama
+- `OPENAI_API_KEY`: OpenAI API key for the recommendation assistant; also works as a backward-compatible fallback for `AI_API_KEY`
+- `OPENAI_MODEL`: backward-compatible fallback for `AI_MODEL`
+- `AI_USE_MOCK_DATA`: set `1` to force deterministic local mock assistant behavior
 - `TMDB_API_KEY`: TMDb API key for live metadata
 - `TMDB_WATCH_REGION`: provider lookup region, default `US`
 - `TMDB_USE_MOCK_DATA`: set `1` to force local mock catalog usage
@@ -258,17 +266,23 @@ Production-like local caveat:
 
 Recommended local integration modes:
 
-- Development and Playwright: `TMDB_USE_MOCK_DATA=1` and `TRAKT_USE_MOCK_DATA=1`
+- Development and Playwright: `AI_USE_MOCK_DATA=1`, `TMDB_USE_MOCK_DATA=1`, and `TRAKT_USE_MOCK_DATA=1`
+- Local-first real assistant with OpenAI, live catalog, and real Trakt: `AI_PROVIDER=openai`, `AI_USE_MOCK_DATA=0`, `OPENAI_API_KEY` or `AI_API_KEY` set, `TMDB_USE_MOCK_DATA=0`, and `TRAKT_USE_MOCK_DATA=0`
+- Local-first real assistant with Ollama, live catalog, and real Trakt: `AI_PROVIDER=ollama`, `AI_USE_MOCK_DATA=0`, `AI_BASE_URL=http://localhost:11434/v1`, `AI_MODEL=llama3.2`, `TMDB_USE_MOCK_DATA=0`, and `TRAKT_USE_MOCK_DATA=0`
 - Production-like local check with live catalog: `TMDB_USE_MOCK_DATA=0` plus a real `TMDB_API_KEY`
 - Trakt live OAuth: set real `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET`, and a matching `TRAKT_REDIRECT_URI`
+- If ScreenLantern is running inside Docker and Ollama is running on your host machine, use `AI_BASE_URL=http://host.docker.internal:11434/v1` instead of `localhost`
 
 ## Release-Readiness Notes
 
 - For a production-style release check, set `TMDB_API_KEY` and keep `TMDB_USE_MOCK_DATA=0`.
 - If `TMDB_API_KEY` is missing, ScreenLantern falls back to the local mock catalog and surfaces that state in Settings so the failure mode is explicit.
 - If Trakt OAuth credentials are missing, Settings keeps Trakt import controls visible but clearly unavailable instead of failing silently.
+- If `AI_USE_MOCK_DATA=1`, the assistant falls back to deterministic mock-answer mode instead of a live model call.
+- If `AI_PROVIDER=openai` and no OpenAI-compatible API key is configured, the assistant also falls back to deterministic mock mode.
+- If `AI_PROVIDER=ollama`, ScreenLantern uses Ollama's local OpenAI-compatible `/v1/chat/completions` API and defaults to `http://localhost:11434/v1`.
 - Search and Browse cards are intentionally trimmed for MVP hardening. Richer save, fit, and handoff decisions belong on Title Detail, Home, and Library.
-- Supported `Open in service` actions remain intentionally narrow and honest. Unsupported providers still show availability without a fake handoff button.
+- Supported provider handoff actions remain intentionally narrow and honest. Unsupported providers still show availability without a fake handoff button.
 - Trakt import controls are intentionally title-level in MVP. Bulk import cleanup and richer conflict-resolution tooling remain post-MVP.
 - Trakt Settings now keeps the last sync review compact and user-facing:
   - changed imports get a short summary plus a few recent imported titles
@@ -291,26 +305,42 @@ Recommended local integration modes:
 
 ## Streaming-Service Handoff
 
-- ScreenLantern adds `Open in service` actions on title detail and on Home/Library cards when a reliable handoff can be constructed.
+- ScreenLantern adds provider handoff actions on title detail and on Home/Library cards when a reliable provider destination can be constructed.
 - Handoff is derived from the existing provider-availability model and stays region-aware through `TMDB_WATCH_REGION`.
-- MVP handoff states are intentionally explicit:
-  - `openable`: availability is known and ScreenLantern can build a safe search-level provider URL
-  - `availability_only`: availability is known, but ScreenLantern does not claim a reliable open action
+- Handoff classification is intentionally explicit:
+  - `title_direct`: ScreenLantern can open the title directly in the provider
+  - `provider_search`: ScreenLantern can open provider search results for the title
+  - `provider_home`: ScreenLantern can only open the provider home or browse surface
+  - `availability_only`: provider availability is known, but ScreenLantern does not claim a reliable handoff action
   - `unknown`: provider availability itself is unavailable right now
-- Current search-level handoff support is intentionally limited to providers with reliable public search URLs:
-  - `Netflix`
-  - `Hulu`
-  - `Prime Video`
-  - `Max`
-  - `Apple TV` / `Apple TV Plus`
-  - `Peacock`
-- Other providers still show honest availability, but ScreenLantern avoids fake or broken `Open in ...` buttons when a trustworthy destination is not available.
+- Current supported provider strategies are intentionally conservative:
+  - `Search in ...` support for `Netflix`
+  - `Search in ...` support for `Hulu`
+  - `Search in ...` support for `Prime Video`
+  - `Search in ...` support for `Max`
+  - `Search in ...` support for `Apple TV` / `Apple TV Plus`
+  - `Search in ...` support for `Peacock`
+  - `Search in ...` support for `Paramount Plus`
+  - `Search in ...` support for `Plex`
+  - `Search in ...` support for `Tubi TV`
+  - `Search in ...` support for `YouTube`
+- Current provider handoff coverage intentionally remains search-level only. The model supports future direct-open and provider-home cases, but ScreenLantern does not pretend they exist where they have not been verified.
+- Availability-only providers remain honest, including cases like `Disney Plus` where provider availability is known but ScreenLantern has not verified a stable public handoff pattern.
+- Region behavior is simple by design:
+  - availability and handoff are based only on the configured `TMDB_WATCH_REGION`
+  - ScreenLantern does not currently reconcile cross-region catalog differences
 - Selected-service prioritization uses the signed-in viewer's provider preferences:
+  - normalized provider aliases such as `Max` / `HBO Max`, `Prime Video` / `Amazon Prime Video`, and `Paramount Plus` / `Paramount Plus Premium` are treated as the same service for handoff ranking
   - matching services rank first
-  - a single strong option becomes the primary `Open in ...` action
-  - multiple openable services surface a `Choose service` affordance
+  - higher-confidence actions rank ahead of lower-confidence ones
+  - lower-confidence provider-home actions stay out of the chooser when stronger search or direct options exist
+- Detail pages remain the richest handoff surface:
+  - the primary action label reflects the handoff mode, such as `Search in Max`
+  - provider rows show whether a service is `Search available` or `Availability only`
+  - multiple actionable services surface a `Choose service` affordance
+- Cards stay quieter and only render handoff controls when a real actionable destination exists.
+- Other providers still show honest availability, but ScreenLantern avoids fake or broken `Open in ...` buttons when a trustworthy destination is not available.
 - Detail pages show fallback copy like `Available on Disney Plus, but direct open is unavailable.`
-- Cards stay quieter and only render handoff controls when a real openable destination exists.
 
 ## Trakt Sync
 
@@ -351,6 +381,46 @@ Recommended local integration modes:
   - manual ScreenLantern actions on the same title stay intact
 - Disconnecting Trakt removes the OAuth connection and tokens, but keeps already imported personal history and watchlist data in ScreenLantern unless the user clears or changes it manually.
 - `TRAKT_USE_MOCK_DATA=1` enables deterministic mock Trakt data for local development and Playwright.
+
+## AI Recommendation Assistant
+
+- ScreenLantern now includes a dedicated `/app/assistant` page in the protected shell.
+- The assistant can run against either:
+  - OpenAI, using the configured API key and model
+  - a local Ollama server, using its OpenAI-compatible API
+  - deterministic mock mode for local testing
+- The assistant is intentionally narrow:
+  - recommend what to watch
+  - refine by runtime, media type, saved-state, or service constraints
+  - answer “why this?” for a title in the current context
+  - help with solo or active-group decisions
+- The assistant stays grounded in:
+  - the signed-in user’s current persisted recommendation context
+  - live TMDb catalog and provider availability when `TMDB_USE_MOCK_DATA=0`
+  - personal imported Trakt history when Trakt is connected
+  - existing ScreenLantern recommendation, fit, library, watchlist, and provider-handoff services
+- The assistant does not:
+  - answer broad general-knowledge chat
+  - claim provider entitlements beyond ScreenLantern’s known availability data
+  - expose raw internal score math
+  - blur personal, shared, and household-only state
+- Tool contract used by the assistant:
+  - `get_active_context`
+  - `get_recommended_titles`
+  - `get_watchlist_candidates`
+  - `get_library_candidates`
+  - `search_titles`
+  - `get_fit_summary`
+- Result rendering stays practical:
+  - assistant answers are short
+  - recommended titles render as structured ScreenLantern cards
+  - title detail click-through and provider handoff actions are preserved
+- Suggested local Ollama setup:
+  - install and run Ollama locally
+  - pull a model such as `ollama pull llama3.2`
+  - if ScreenLantern is running directly on your Mac, set `AI_PROVIDER=ollama` and `AI_BASE_URL=http://localhost:11434/v1`
+  - if ScreenLantern is running through `docker:dev:up` or `docker:prod:up`, set `AI_PROVIDER=ollama` and `AI_BASE_URL=http://host.docker.internal:11434/v1`
+  - set `AI_USE_MOCK_DATA=0`
 
 ## Recommendation Context and Group Watching
 
@@ -574,5 +644,5 @@ Recommended local integration modes:
 - Advanced faceted Library search, bulk cleanup workflows, and deeper reminder-rule tuning
 - Custom per-category cooldown windows and more advanced reminder frequency rules
 - Comments, reactions, and richer collaboration feeds on shared watchlist entries
-- AI chat and LLM orchestration
+- Broad general-purpose AI chat, open-ended conversational search, and deeper multi-thread assistant workflows
 - Native mobile clients

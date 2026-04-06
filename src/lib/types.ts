@@ -37,7 +37,10 @@ export type ProviderHandoffStatus =
   | "availability_only"
   | "unavailable"
   | "unknown";
-export type ProviderHandoffKind = "provider_search";
+export type ProviderHandoffKind =
+  | "title_direct"
+  | "provider_search"
+  | "provider_home";
 
 export interface ProviderHandoffEntry {
   providerName: string;
@@ -404,4 +407,58 @@ export interface TasteProfile {
   dislikedTmdbKeys: string[];
   hiddenTmdbKeys: string[];
   watchedTmdbKeys: string[];
+}
+
+export type AssistantConversationRole = "user" | "assistant";
+export type AssistantRuntimeMode = "mock" | "openai" | "ollama";
+export type AssistantMoodKey =
+  | "funny"
+  | "lighter"
+  | "tense"
+  | "romantic"
+  | "scary"
+  | "thoughtful";
+export type AssistantCandidateSource =
+  | "recommendation"
+  | "watchlist"
+  | "shared_group"
+  | "shared_household"
+  | "library"
+  | "search";
+
+export interface AssistantContextSnapshot {
+  label: string;
+  mode: RecommendationModeKey;
+  isGroupMode: boolean;
+  selectedUserIds: string[];
+  savedGroupId: string | null;
+}
+
+export interface AssistantMessageCard {
+  id: string;
+  source: AssistantCandidateSource;
+  sourceLabel: string;
+  title: TitleSummary;
+  handoff: TitleHandoffSummary | null;
+  recommendationExplanations: RecommendationExplanation[];
+  recommendationBadges: string[];
+  recommendationContextLabel?: string | null;
+  fitSummaryLabel?: string | null;
+  personalSourceBadge?: string | null;
+}
+
+export interface AssistantConversationMessage {
+  id: string;
+  role: AssistantConversationRole;
+  text: string;
+  createdAt: string;
+  cards: AssistantMessageCard[];
+}
+
+export interface AssistantConversationSnapshot {
+  isMockMode: boolean;
+  runtimeMode: AssistantRuntimeMode;
+  providerLabel: string;
+  context: AssistantContextSnapshot;
+  messages: AssistantConversationMessage[];
 }

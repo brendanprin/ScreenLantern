@@ -277,7 +277,7 @@
 - Test expectations:
   - Title detail smoke test
 
-### Ticket 5.3: Add streaming-service handoff and honest `Open in service` actions
+### Ticket 5.3: Add streaming-service handoff and honest provider actions
 
 - Priority: P1
 - Goal: Help users leave ScreenLantern and start watching when a trustworthy provider destination exists, without faking universal deep links.
@@ -288,11 +288,11 @@
   - Honest fallback copy when availability is known but ScreenLantern does not support a reliable direct handoff for that provider
 - Technical notes:
   - Reuse the existing TMDb watch-region and provider-caching model
-  - Prefer search-level provider URLs for a narrow supported-provider set instead of pretending title-deep links exist everywhere
+  - Prefer verified search-level provider URLs for a narrow supported-provider set instead of pretending title-deep links exist everywhere
   - Use the signed-in viewer's selected provider preferences to rank handoff options first
   - Keep unsupported providers availability-only until their handoff behavior can be implemented honestly
 - Acceptance criteria:
-  - Title detail can show `Open in ...` when one supported provider is a strong match
+  - Title detail can show an honest action such as `Open in ...` or `Search in ...` when one supported provider is a strong match
   - Users can choose between multiple openable providers when appropriate
   - Cards surface handoff actions only when a real handoff exists
   - Availability-only providers do not show broken open buttons
@@ -301,6 +301,31 @@
   - Single-provider handoff coverage
   - Multi-provider chooser coverage
   - Availability-only and unknown-provider fallback coverage
+
+### Ticket 5.4: Broaden provider handoff coverage with explicit handoff modes
+
+- Priority: P1
+- Goal: Expand useful provider destinations without pretending every provider supports reliable title launching.
+- Scope:
+  - Extend the provider-handoff model to distinguish `title_direct`, `provider_search`, `provider_home`, and availability-only cases
+  - Add verified search-level provider coverage for `Paramount Plus`, `Plex`, `Tubi TV`, and `YouTube`
+  - Improve chooser ranking so selected services and higher-confidence actions stay first
+  - Keep unsupported providers, including cases like `Disney Plus`, availability-only until a stable public handoff strategy is verified
+- Technical notes:
+  - Reuse the existing provider availability model and viewer-selected provider preferences
+  - Normalize provider aliases so matching services such as `Prime Video` / `Amazon Prime Video` rank correctly
+  - Avoid surfacing lower-confidence provider-home actions when stronger direct or search actions are already available
+  - Defer direct provider account linking and in-app playback
+- Acceptance criteria:
+  - Detail and card surfaces use action labels that match the handoff mode
+  - Mixed-support titles can show actionable providers first without hiding honest availability-only rows
+  - Newly supported providers participate in chooser ranking and selected-service prioritization
+  - Unsupported providers remain availability-only instead of showing fake buttons
+- Test expectations:
+  - Newly supported provider rules
+  - Openable versus availability-only classification
+  - Search-level fallback handling
+  - Mixed-support chooser rendering
 
 ## Epic 6: Personal Library and Interaction Tracking
 
@@ -783,6 +808,40 @@
 - Test expectations:
   - Reliable smoke coverage for auth, search, detail, save, group context, and handoff rendering
 
+## Epic 11: AI Recommendation Assistant (Phase 2)
+
+### Ticket 11.1: Add a grounded recommendation assistant page and orchestration layer
+
+- Priority: P1
+- Goal: Give signed-in users a narrow conversational recommendation layer that reuses ScreenLantern's existing recommendation, fit, library, shared-watchlist, provider-handoff, and Trakt-aware state instead of inventing a second recommendation engine.
+- Scope:
+  - Dedicated protected `/app/assistant` page with one active thread per signed-in user in MVP
+  - Clear active-context labeling such as `For Brendan` or `For Brendan + Palmer`
+  - Server-side assistant orchestration service that calls structured ScreenLantern tools
+  - Structured result cards with title click-through and existing provider-handoff actions
+  - Lightweight follow-up refinement loop for recommendation requests
+- Technical notes:
+  - Keep the assistant recommendation-focused rather than general-purpose chat
+  - Ground answers in the current active solo or group context, selected services, shared watchlist state, library state, fit summaries, and personal Trakt-imported history
+  - Tool contract should stay small and app-facing, including helpers such as `searchTitles`, `getRecommendedTitles`, `getWatchlistCandidates`, `getLibraryCandidates`, `getFitSummary`, and `getAvailableProviders`
+  - Preserve privacy boundaries between personal, shared, and household state
+  - Support local-first development with a deterministic mock assistant mode when `AI_USE_MOCK_DATA=1`, or when the OpenAI provider is selected without a valid API key
+  - Local real-data mode should work with live TMDb and real Trakt imports when `TMDB_USE_MOCK_DATA=0`, `TRAKT_USE_MOCK_DATA=0`, and either a valid OpenAI key or a local Ollama server is configured
+- Acceptance criteria:
+  - A signed-in user can ask for a solo or group recommendation from the assistant page
+  - Follow-up prompts such as `Something lighter`, `Only movies`, `Only on our services`, `What about something we saved already?`, and `Why this?` stay grounded in current app state
+  - Group answers remain household-safe and do not imply fake unanimity
+  - Assistant results reuse existing title detail navigation and provider-handoff behavior
+  - Off-domain questions redirect briefly back toward watch recommendations instead of pretending ScreenLantern is a general chatbot
+- Test expectations:
+  - Solo recommendation chat coverage
+  - Group recommendation chat coverage
+  - Follow-up refinement coverage
+  - Watchlist and Library candidate coverage
+  - Grounded `why this` response coverage
+  - Provider-aware card rendering coverage
+  - Household-safe authorization and context-boundary coverage
+
 ## Suggested Execution Sequence
 
 1. Epic 1
@@ -795,3 +854,4 @@
 8. Epic 8
 9. Epic 9
 10. Epic 10
+11. Epic 11

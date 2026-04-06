@@ -3,6 +3,10 @@ import { ExternalLink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  getProviderHandoffActionLabel,
+  getProviderHandoffDescription,
+} from "@/lib/services/provider-handoff";
 import type { TitleHandoffSummary } from "@/lib/types";
 
 interface ProviderHandoffActionsProps {
@@ -30,6 +34,10 @@ export function ProviderHandoffActions({
 
   const isDetail = variant === "detail";
   const buttonSize = isDetail ? "default" : "sm";
+  const primaryActionLabel = getProviderHandoffActionLabel(
+    primary.handoffKind,
+    primary.providerName,
+  );
 
   return (
     <div
@@ -47,7 +55,7 @@ export function ProviderHandoffActions({
             rel="noreferrer"
           >
             <ExternalLink className="h-4 w-4" />
-            Open in {primary.providerName}
+            {primaryActionLabel}
           </Link>
         </Button>
         {handoff.selectedAvailability === "selected_services" ? (
@@ -57,7 +65,7 @@ export function ProviderHandoffActions({
 
       {isDetail ? (
         <p className="text-sm text-muted-foreground">
-          This opens search results in {primary.providerName} for this title.
+          {getProviderHandoffDescription(primary.handoffKind, primary.providerName)}
         </p>
       ) : null}
 
@@ -75,7 +83,7 @@ export function ProviderHandoffActions({
                   rel="noreferrer"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  {option.providerName}
+                  {getProviderHandoffActionLabel(option.handoffKind, option.providerName)}
                 </Link>
               </Button>
             ))}
