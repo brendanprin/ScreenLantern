@@ -53,6 +53,33 @@ The MVP is intentionally focused on discovery, library management, explainable r
 
 ## Local Development
 
+### Docker Compose development path
+
+This is the fastest fully containerized path now:
+
+```bash
+cp .env.example .env
+npm install
+npm run docker:dev:up
+```
+
+What it does:
+
+- starts an internal Postgres container for the dev stack
+- starts the app on [http://localhost:3000](http://localhost:3000)
+- waits for the database
+- runs `prisma migrate deploy`
+- generates the Prisma client
+- seeds the demo household once when the database is empty
+
+Stop it with:
+
+```bash
+npm run docker:dev:down
+```
+
+### Manual local development path
+
 1. Copy `.env.example` to `.env`.
 2. Start PostgreSQL:
 
@@ -110,6 +137,13 @@ npm run db:seed
 npm run dev
 ```
 
+Containerized development path:
+
+```bash
+docker compose -f docker-compose.dev.yml config
+docker compose -f docker-compose.dev.yml up --build -d
+```
+
 Useful feature verification:
 
 ```bash
@@ -120,6 +154,33 @@ npm run test:e2e
 ```
 
 ## Local Production-Like Run
+
+### Docker Compose production-like path
+
+For a one-command production-like local run:
+
+```bash
+cp .env.example .env
+npm install
+npm run docker:prod:up
+```
+
+What it does:
+
+- starts an isolated internal Postgres container for the prod-like stack
+- builds the app image with `npm run build`
+- starts the built app on [http://localhost:3001](http://localhost:3001)
+- waits for the database
+- runs `prisma migrate deploy`
+- seeds demo data once when the production-like database is empty
+
+Stop it with:
+
+```bash
+npm run docker:prod:down
+```
+
+### Manual production-like path
 
 1. Use the same `.env` file and running PostgreSQL container as development mode.
 2. Apply the checked-in SQL migrations if you have not already.
@@ -145,6 +206,7 @@ npm run start
 Production-like local caveat:
 
 - If you ran `npm run dev` after the last build, run `npm run build` again before `npm run start`. In local development, `.next` can contain dev artifacts after a later `next dev` session.
+- The production compose path avoids that `.next` caveat by building inside the image before startup.
 
 ## Demo Credentials
 
@@ -455,6 +517,10 @@ Recommended local integration modes:
 
 - `npm run dev`: start the app locally
 - `npm run build`: production build
+- `npm run docker:dev:up`: build and start the containerized development stack
+- `npm run docker:dev:down`: stop the containerized development stack
+- `npm run docker:prod:up`: build and start the production-like container stack
+- `npm run docker:prod:down`: stop the production-like container stack
 - `npm run lint`: lint the codebase
 - `npm run test:unit`: run Vitest unit tests
 - `npm run test:e2e`: run Playwright smoke tests

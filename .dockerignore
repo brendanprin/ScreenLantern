@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.gitignore
+test-results
+playwright-report
+coverage
+*.log
+.env
+postgres_data
+tmp

@@ -1,0 +1,40 @@
+name: screenlantern-prod
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: screenlantern
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - screenlantern_prod_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d screenlantern"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/screenlantern?schema=public
+      NEXTAUTH_URL: http://localhost:3001
+      AUTH_TRUST_HOST: "true"
+      PORT: "3000"
+      SEED_DEMO_DATA: "1"
+      NODE_ENV: production
+    ports:
+      - "3001:3000"
+    command: ["/bin/sh", "./scripts/start-prod.sh"]
+
+volumes:
+  screenlantern_prod_postgres_data:
