@@ -121,6 +121,7 @@ The MVP is considered complete when:
 - Source-aware personal state is visible on Title Detail and lightweight Library collection views so users can tell what came from Trakt versus ScreenLantern
 - A signed-in user can clear imported watched, watchlist, or rating-derived taste state for one title without removing manual ScreenLantern state
 - Settings shows a compact last-sync review so users can tell whether the last Trakt sync was manual or automatic, whether anything changed, and which recent titles were imported
+- MVP keeps only the latest sync review summary instead of a full per-sync history log
 - The repository contains product, architecture, and roadmap documentation
 - The ticket breakdown is detailed enough to manage follow-on work
 
@@ -131,6 +132,7 @@ The MVP is considered complete when:
 - More advanced Library cleanup tools, faceted exploration, and bulk actions
 - Richer collaborative activity filtering and deeper shared-planning controls
 - Scheduled Trakt refresh jobs and bulk import-management controls
+- Full sync-history or audit pages for every Trakt import run
 
 ## Release-Readiness Notes
 

@@ -96,6 +96,12 @@ npm install
 4. Apply the checked-in migrations:
 
 ```bash
+npx prisma migrate deploy
+```
+
+If Prisma's schema engine fails locally during `migrate deploy`, apply the checked-in SQL migrations directly:
+
+```bash
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403130200_init/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403153000_household_roles_and_invites/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403170000_recommendation_context_and_group_watch_sessions/migration.sql
@@ -147,11 +153,15 @@ docker compose -f docker-compose.dev.yml up --build -d
 Useful feature verification:
 
 ```bash
-npx tsc --noEmit
 npm run lint
 npm run test:unit
 npm run test:e2e
 ```
+
+TypeScript verification caveat:
+
+- `npx tsc --noEmit` depends on generated `.next/types` because `tsconfig.json` includes `.next/types/**/*.ts`.
+- Run `npm run build` first, or start `npm run dev` once, before using standalone `tsc`.
 
 ## Local Production-Like Run
 
@@ -185,6 +195,14 @@ npm run docker:prod:down
 
 1. Use the same `.env` file and running PostgreSQL container as development mode.
 2. Apply the checked-in SQL migrations if you have not already.
+   Preferred path:
+
+```bash
+npx prisma migrate deploy
+```
+
+   If Prisma's schema engine fails locally, use the checked-in SQL migration commands from the manual development path above.
+
 3. Regenerate Prisma and reseed if you want the demo household locally:
 
 ```bash
@@ -208,6 +226,7 @@ Production-like local caveat:
 
 - If you ran `npm run dev` after the last build, run `npm run build` again before `npm run start`. In local development, `.next` can contain dev artifacts after a later `next dev` session.
 - The production compose path avoids that `.next` caveat by building inside the image before startup.
+- The production-like Docker stack seeds demo users and household structure only. Personal watched, ratings, watchlist, and provider preferences should come from live TMDb plus Trakt sync, not from demo title interactions.
 
 ## Demo Credentials
 

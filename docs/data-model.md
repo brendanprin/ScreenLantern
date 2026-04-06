@@ -78,6 +78,10 @@ In the current MVP implementation, membership is represented directly on the `Us
   - last sync status
   - last sync trigger (`MANUAL` or `AUTOMATIC`)
   - compact last-sync summary JSON for user-facing review
+    - imported counts for watched, watchlist, likes, and dislikes
+    - cleared-count summary for imported rows removed to match Trakt
+    - skipped unmatched-title count
+    - a short recent-import preview
   - stored Trakt activity timestamps for delta sync planning
 - Uses the same row for manual sync, opportunistic app-open sync, and future scheduler-triggered sync
 - Does not store an unbounded sync-history log in MVP; Settings reads the compact last-sync summary instead

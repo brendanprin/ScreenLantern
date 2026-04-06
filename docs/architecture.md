@@ -302,7 +302,7 @@ This keeps “who is this best for?” honest, deterministic, and reusable witho
 6. Imported titles are matched by TMDb ids where possible and normalized into `TitleCache` rows before interaction writes.
 7. Imported interaction rows are written with `SourceContext.IMPORTED` so later syncs can update imported state without trampling manual ScreenLantern changes.
 8. `UserTraktConnection` also stores a user-owned sync mode plus last-attempt metadata so freshness decisions stay on the same record as the OAuth tokens.
-9. The same row stores a compact last-sync trigger and summary payload so Settings can show what changed, whether the sync was manual or automatic, and a few recent imported titles without a separate sync-history table.
+9. The same row stores only the latest compact last-sync trigger and summary payload so Settings can show what changed, whether the sync was manual or automatic, and a few recent imported titles without a separate sync-history table.
 10. Automatic refresh calls the same `syncTraktAccount` service through two thin entry points:
    - an authenticated app-open trigger for signed-in users
    - a secret-protected internal route for future scheduler or cron use

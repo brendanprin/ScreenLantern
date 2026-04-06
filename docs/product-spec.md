@@ -148,6 +148,7 @@ These demo personas exist to make local development and recommendation tuning ea
   - imported interactions are marked as imported so repeated syncs stay idempotent
   - manual ScreenLantern actions remain authoritative over imported state
   - the last sync summary should stay compact and user-facing, not a raw admin log
+  - MVP stores only the latest sync review, not a full sync-history timeline
 - Sync freshness modes in MVP:
   - `OFF`
   - `DAILY`
@@ -173,6 +174,7 @@ These demo personas exist to make local development and recommendation tuning ea
   - shared recommendation context
 - Disconnecting Trakt stops future syncs but keeps already imported personal data unless the user edits it manually inside ScreenLantern
 - A future scheduler should be able to call a protected internal sync entry point without requiring a second import code path
+- Richer sync-history or audit surfaces remain deferred beyond MVP
 
 ### Personal Library
 

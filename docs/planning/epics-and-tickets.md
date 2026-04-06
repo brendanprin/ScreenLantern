@@ -728,6 +728,7 @@
   - Reuse the existing sync result counts and delta-sync path instead of a second sync-history system
   - Keep the summary user-facing and compact; do not expose raw token or internal error detail
   - Store only the most recent sync summary in MVP
+  - Capture only lightweight counts, skipped unmatched items, and a short recent-import preview
 - Acceptance criteria:
   - Settings clearly shows what the last sync did
   - Users can tell whether the last sync was manual or automatic
