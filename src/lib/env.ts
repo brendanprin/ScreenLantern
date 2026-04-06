@@ -15,4 +15,6 @@ export const env = {
     }/api/integrations/trakt/callback`,
   traktUseMockData:
     process.env.TRAKT_USE_MOCK_DATA === "1",
+  internalSyncSecret:
+    process.env.INTERNAL_SYNC_SECRET ?? process.env.AUTH_SECRET,
 };

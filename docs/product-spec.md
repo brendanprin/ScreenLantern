@@ -119,7 +119,15 @@ These demo personas exist to make local development and recommendation tuning ea
 - Trakt linking uses OAuth and stores tokens securely for that user only
 - Settings should clearly show:
   - whether Trakt is connected
-  - last sync time and last sync status
+  - current sync freshness mode
+  - last attempted sync time and last successful sync time
+  - whether imported data may be stale
+  - whether the last sync was manual or automatic
+  - a lightweight last-sync review:
+    - changed imports
+    - no-change syncs
+    - failed sync guidance
+    - a small recent-import preview when it helps build trust
   - what data types are imported
   - that imported data stays personal
   - that disconnect stops future syncs but does not delete imported personal data automatically
@@ -139,6 +147,17 @@ These demo personas exist to make local development and recommendation tuning ea
   - later syncs use Trakt activity timestamps to fetch changed categories only when possible
   - imported interactions are marked as imported so repeated syncs stay idempotent
   - manual ScreenLantern actions remain authoritative over imported state
+  - the last sync summary should stay compact and user-facing, not a raw admin log
+- Sync freshness modes in MVP:
+  - `OFF`
+  - `DAILY`
+  - `ON_LOGIN_OR_APP_OPEN`
+- `DAILY` is intentionally conservative:
+  - first import stays manual for trust
+  - later refreshes can happen automatically when the user returns and the last successful sync is stale
+- `ON_LOGIN_OR_APP_OPEN` is intentionally more proactive:
+  - it can run the first import automatically after connect
+  - it should still back off after failures instead of retrying on every page load
 - Source-aware UI should stay lightweight and personal:
   - Title Detail should show whether watched, watchlist, and taste state came from Trakt sync or manual ScreenLantern actions
   - Library collection views can offer a lightweight `Imported from Trakt` versus `Added in ScreenLantern` filter for the signed-in user's own profile
@@ -153,6 +172,7 @@ These demo personas exist to make local development and recommendation tuning ea
   - household activity
   - shared recommendation context
 - Disconnecting Trakt stops future syncs but keeps already imported personal data unless the user edits it manually inside ScreenLantern
+- A future scheduler should be able to call a protected internal sync entry point without requiring a second import code path
 
 ### Personal Library
 
@@ -322,7 +342,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Native mobile apps
 - LLM chat or conversational search
 - Highly complex machine-learned ranking systems
-- Scheduled or background Trakt sync jobs
+- Full scheduler or job-runner infrastructure beyond the built-in opportunistic and internal Trakt sync paths
 
 ## Success Criteria For MVP
 
@@ -349,6 +369,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Household members can review a recent shared-history feed for collaborative saves, watched-together moments, invites, and governance changes without seeing private solo-only taste actions
 - Title detail and key cards can offer an honest `Open in service` action when a supported handoff exists and can fall back cleanly when it does not
 - A signed-in user can connect Trakt, manually sync watched history, ratings, and watchlist, and keep those imports personal to their own ScreenLantern profile
+- A signed-in user can choose a Trakt freshness mode and understand when imported history may be stale
 - Repeated Trakt syncs stay idempotent and do not repeatedly duplicate imported personal interactions
 - The codebase exposes clear service functions that a future AI layer could call
 

@@ -1,11 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { TraktConnectionSummary, TraktSyncResult } from "@/lib/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type {
+  TraktConnectionSummary,
+  TraktRecentImportItem,
+  TraktSyncModeKey,
+  TraktSyncResult,
+} from "@/lib/types";
 
 interface TraktIntegrationFormProps {
   summary: TraktConnectionSummary;
@@ -14,6 +27,31 @@ interface TraktIntegrationFormProps {
     message: string;
   } | null;
 }
+
+const SYNC_MODE_OPTIONS: Array<{
+  value: TraktSyncModeKey;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "OFF",
+    label: "Off",
+    description:
+      "Keep Trakt imports manual only. ScreenLantern will not refresh automatically.",
+  },
+  {
+    value: "DAILY",
+    label: "Daily",
+    description:
+      "After your first sync, ScreenLantern refreshes at most once a day when you come back.",
+  },
+  {
+    value: "ON_LOGIN_OR_APP_OPEN",
+    label: "On sign in or app open",
+    description:
+      "Check more often when you return, but only when your imported Trakt data is getting stale.",
+  },
+];
 
 function formatTimestamp(value?: string | null) {
   if (!value) {
@@ -44,12 +82,28 @@ function formatSyncSummary(result: TraktSyncResult) {
   return [...parts, ...clearedParts].join(" · ");
 }
 
+function formatRecentImportLabel(item: TraktRecentImportItem) {
+  switch (item.kind) {
+    case "WATCHED":
+      return "Watched via Trakt";
+    case "WATCHLIST":
+      return "Saved on Trakt watchlist";
+    case "LIKE":
+      return "Positive Trakt rating";
+    case "DISLIKE":
+      return "Negative Trakt rating";
+    default:
+      return "Imported from Trakt";
+  }
+}
+
 export function TraktIntegrationForm({
   summary,
   notice = null,
 }: TraktIntegrationFormProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
+  const [syncMode, setSyncMode] = useState<TraktSyncModeKey>(summary.syncMode);
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -139,6 +193,44 @@ export function TraktIntegrationForm({
     }
   }
 
+  async function saveSyncMode() {
+    setMessage(null);
+    setIsPending(true);
+
+    try {
+      const response = await fetch("/api/settings/trakt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          syncMode,
+        }),
+      });
+      const payload = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to save Trakt sync freshness.");
+      }
+
+      setMessage({
+        type: "success",
+        text: "Trakt sync freshness saved.",
+      });
+      router.refresh();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Unable to save Trakt sync freshness.",
+      });
+    } finally {
+      setIsPending(false);
+    }
+  }
+
   async function disconnect() {
     if (!window.confirm("Disconnect Trakt? Imported data already in ScreenLantern will stay in your personal profile.")) {
       return;
@@ -192,16 +284,25 @@ export function TraktIntegrationForm({
               : "Not connected"}
           </p>
           <p className="mt-2 text-muted-foreground">
-            Last sync: {formatTimestamp(summary.lastSyncedAt)}
+            Sync mode:{" "}
+            {SYNC_MODE_OPTIONS.find((option) => option.value === summary.syncMode)?.label ??
+              "Off"}
           </p>
-          {summary.lastSyncStatus ? (
-            <p className="mt-1 text-muted-foreground">
-              Last status: {summary.lastSyncStatus.replaceAll("_", " ").toLowerCase()}
+          {summary.lastSyncReview?.triggerLabel ? (
+            <p className="mt-1 text-muted-foreground" data-testid="trakt-last-sync-trigger">
+              Last sync type: {summary.lastSyncReview.triggerLabel.toLowerCase()}
             </p>
           ) : null}
-          {summary.lastSyncError ? (
-            <p className="mt-2 text-destructive">{summary.lastSyncError}</p>
-          ) : null}
+          <p className="mt-1 text-muted-foreground" data-testid="trakt-freshness-state">
+            Freshness: {summary.freshnessState.replaceAll("_", " ").toLowerCase()}.
+          </p>
+          <p className="mt-1 text-muted-foreground">{summary.freshnessMessage}</p>
+          <p className="mt-2 text-muted-foreground">
+            Last successful sync: {formatTimestamp(summary.lastSyncedAt)}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            Last attempt: {formatTimestamp(summary.lastSyncAttemptedAt)}
+          </p>
           <p className="mt-3 text-muted-foreground">
             Imports: {summary.importedScopes.join(", ")}.
           </p>
@@ -220,10 +321,92 @@ export function TraktIntegrationForm({
           ) : null}
         </div>
 
+        <div
+          className="rounded-2xl border border-border/70 bg-background/60 p-4 text-sm text-muted-foreground"
+          data-testid="trakt-sync-review"
+        >
+          <p className="font-medium text-foreground">Last sync review</p>
+          {summary.lastSyncReview ? (
+            <>
+              <p
+                className="mt-2 text-sm font-medium text-foreground"
+                data-testid="trakt-sync-review-headline"
+              >
+                {summary.lastSyncReview.headline}
+              </p>
+              <p className="mt-1">{summary.lastSyncReview.detail}</p>
+              {summary.lastSyncReview.skippedNote ? (
+                <p className="mt-2">{summary.lastSyncReview.skippedNote}</p>
+              ) : null}
+              {summary.lastSyncReview.recentImports.length > 0 ? (
+                <div className="mt-3 space-y-2" data-testid="trakt-recent-imports">
+                  <p className="font-medium text-foreground">Recent imported titles</p>
+                  <ul className="space-y-2">
+                    {summary.lastSyncReview.recentImports.map((item) => (
+                      <li key={`${item.kind}-${item.mediaType}-${item.tmdbId}`}>
+                        <Link
+                          href={`/app/title/${item.mediaType}/${item.tmdbId}`}
+                          className="font-medium text-foreground hover:text-primary"
+                        >
+                          {item.title}
+                        </Link>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {formatRecentImportLabel(item)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="mt-2">
+              Run Sync now once to review the watched history, ratings, and watchlist
+              changes ScreenLantern imported from Trakt.
+            </p>
+          )}
+        </div>
+
         {!summary.isAvailable ? (
           <div className="rounded-2xl border border-dashed border-border bg-background/40 p-4 text-sm text-muted-foreground">
             Add <code>TRAKT_CLIENT_ID</code> and <code>TRAKT_CLIENT_SECRET</code> to
             enable real Trakt linking in this environment.
+          </div>
+        ) : null}
+
+        {summary.isConnected ? (
+          <div className="space-y-3 rounded-2xl border border-border/70 bg-background/60 p-4 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Sync freshness</p>
+            <Select
+              value={syncMode}
+              onValueChange={(value) => setSyncMode(value as TraktSyncModeKey)}
+            >
+              <SelectTrigger aria-label="Trakt sync mode">
+                <SelectValue placeholder="Choose Trakt sync mode" />
+              </SelectTrigger>
+              <SelectContent>
+                {SYNC_MODE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {
+                SYNC_MODE_OPTIONS.find((option) => option.value === syncMode)
+                  ?.description
+              }
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isPending}
+              onClick={saveSyncMode}
+            >
+              Save sync freshness
+            </Button>
           </div>
         ) : null}
 

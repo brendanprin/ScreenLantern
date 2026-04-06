@@ -15,6 +15,7 @@ export async function POST() {
       userId: user.userId,
       householdId: user.householdId,
       email: user.email,
+      trigger: "manual",
     });
 
     return NextResponse.json({ ok: true, result });

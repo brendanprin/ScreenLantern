@@ -71,7 +71,16 @@ In the current MVP implementation, membership is represented directly on the `Us
 - Persisted OAuth and sync metadata for one user's linked Trakt account
 - Stores encrypted access and refresh tokens plus lightweight sync status fields
 - Keeps import ownership strictly personal to the connected ScreenLantern user
-- Tracks last sync time, last sync status, and stored Trakt activity timestamps for delta sync planning
+- Tracks:
+  - sync freshness mode
+  - last attempted sync time
+  - last successful sync time
+  - last sync status
+  - last sync trigger (`MANUAL` or `AUTOMATIC`)
+  - compact last-sync summary JSON for user-facing review
+  - stored Trakt activity timestamps for delta sync planning
+- Uses the same row for manual sync, opportunistic app-open sync, and future scheduler-triggered sync
+- Does not store an unbounded sync-history log in MVP; Settings reads the compact last-sync summary instead
 
 ### SharedWatchlistEntry
 
@@ -156,7 +165,9 @@ In the current MVP implementation, membership is represented directly on the `Us
   - `refreshTokenEncrypted`
   - `expiresAt`
   - `scope`
+  - `syncMode`
   - `lastActivitiesJson`
+  - `lastSyncAttemptedAt`
   - `lastSyncedAt`
   - `lastSyncStatus`
   - `lastSyncError`
@@ -265,6 +276,11 @@ Imported mapping rules:
   - `watched` clears imported `WATCHED`
   - `taste` clears imported `LIKE` and `DISLIKE`
 - Shared watchlist rows, household activity, and group watch sessions are unaffected by imported-state cleanup
+- Automatic Trakt sync rules in MVP:
+  - `OFF` disables automatic refresh
+  - `DAILY` requires a first manual import, then refreshes when the last successful sync is older than one day
+  - `ON_LOGIN_OR_APP_OPEN` can refresh more aggressively and can bootstrap the first import automatically
+  - repeated automatic failures back off before retrying again
 
 ### Shared Watchlist Entries
 

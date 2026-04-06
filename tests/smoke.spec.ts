@@ -670,8 +670,14 @@ test("Trakt linking shows imported sources clearly and lets users clear imported
   await expect(
     page
       .getByTestId("trakt-integration-card")
-      .getByText(/^Last sync:/),
+      .getByText(/^Last successful sync:/),
   ).not.toContainText("Never synced");
+  await expect(page.getByTestId("trakt-sync-review-headline")).toContainText(
+    "Imported 2 watched titles, 1 watchlist item, and 1 rating.",
+  );
+  await expect(page.getByTestId("trakt-recent-imports")).toContainText(
+    "Spider-Man: Into the Spider-Verse",
+  );
   await expect(page.getByTestId("trakt-recommendation-impact")).toContainText(
     "Imported watched history helps ScreenLantern avoid resurfacing titles you have already seen.",
   );
@@ -761,6 +767,9 @@ test("Trakt linking shows imported sources clearly and lets users clear imported
   expect(secondSyncPayload.result.cleared.ratings).toBe(0);
 
   await page.goto("/app/settings");
+  await expect(page.getByTestId("trakt-sync-review-headline")).toContainText(
+    "No new Trakt changes found.",
+  );
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Disconnect Trakt" }).click();
   await expect(page.getByTestId("trakt-connection-status")).toContainText(
@@ -776,6 +785,86 @@ test("Trakt linking shows imported sources clearly and lets users clear imported
       .getByTestId("library-section-collection")
       .getByRole("heading", { name: "Only Murders in the Building" }),
   ).toBeVisible();
+});
+
+test("Trakt sync freshness settings persist and opportunistic app-open sync keeps imports current", async ({
+  page,
+}) => {
+  await signInAs(page, DEMO_EMAIL);
+  await page.goto("/app/settings");
+  await page.getByRole("button", { name: "Connect Trakt" }).click();
+  await expect(page.getByTestId("trakt-connection-status")).toContainText(
+    "Connected as brendan",
+  );
+  await expect(page.getByTestId("trakt-freshness-state")).toContainText(
+    "never synced",
+  );
+  const saveModeResponse = await page.context().request.post("/api/settings/trakt", {
+    data: {
+      syncMode: "ON_LOGIN_OR_APP_OPEN",
+    },
+  });
+  expect(saveModeResponse.ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.getByText("Sync mode: On sign in or app open")).toBeVisible();
+  await expect(page.getByTestId("trakt-last-sync-trigger")).toContainText(
+    "automatic sync",
+  );
+  await expect(
+    page.getByTestId("trakt-integration-card").getByText(/^Last successful sync:/),
+  ).not.toContainText("Never synced");
+  await page.goto("/app/library?collection=WATCHLIST&source=imported");
+  await expect(
+    page
+      .getByTestId("library-section-collection")
+      .getByRole("heading", { name: "Ted Lasso" }),
+  ).toBeVisible();
+
+  await signOut(page);
+
+  const autoSyncResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/integrations/trakt/sync/auto") &&
+      response.request().method() === "POST",
+  );
+  await signInAs(page, DEMO_EMAIL);
+  const autoSyncResponse = await autoSyncResponsePromise;
+  const autoSyncPayload = (await autoSyncResponse.json()) as {
+    result: {
+      outcome: string;
+      reason: string;
+    };
+  };
+  expect(autoSyncPayload.result.outcome).toBe("skipped");
+  expect(autoSyncPayload.result.reason).toBe("fresh_enough");
+
+  await page.goto("/app/settings");
+  await expect(page.getByText("Sync mode: On sign in or app open")).toBeVisible();
+  await expect(page.getByTestId("trakt-last-sync-trigger")).toContainText(
+    "automatic sync",
+  );
+  await expect(
+    page.getByTestId("trakt-integration-card").getByText(/^Last successful sync:/),
+  ).not.toContainText("Never synced");
+
+  const secondAutoSyncResponse = await page.context().request.post(
+    "/api/integrations/trakt/sync/auto",
+  );
+  const secondAutoSyncPayload = (await secondAutoSyncResponse.json()) as {
+    result: {
+      outcome: string;
+      reason: string;
+    };
+  };
+  expect(secondAutoSyncPayload.result.outcome).toBe("skipped");
+  expect(secondAutoSyncPayload.result.reason).toBe("fresh_enough");
+
+  await page.goto("/app/settings");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Disconnect Trakt" }).click();
+  await expect(page.getByTestId("trakt-connection-status")).toContainText(
+    "Not connected",
+  );
 });
 
 test("membership listing and owner invite creation work", async ({ page }) => {

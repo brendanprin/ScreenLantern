@@ -1,4 +1,12 @@
-import { InteractionType, MediaType, Prisma, SourceContext, TraktSyncStatus } from "@prisma/client";
+import {
+  InteractionType,
+  MediaType,
+  Prisma,
+  SourceContext,
+  TraktSyncMode,
+  TraktSyncStatus,
+  TraktSyncTrigger,
+} from "@prisma/client";
 
 import { env } from "@/lib/env";
 import {
@@ -17,7 +25,15 @@ import { upsertTitleCache } from "@/lib/services/title-cache";
 import type {
   MediaTypeKey,
   TraktConnectionSummary,
+  TraktAutoSyncResult,
+  TraktFreshnessStateKey,
+  TraktLastSyncSummary,
+  TraktRecentImportItem,
+  TraktRecentImportKind,
+  TraktSyncReview,
+  TraktSyncModeKey,
   TraktSyncResult,
+  TraktSyncTriggerKey,
 } from "@/lib/types";
 
 const TRAKT_AUTHORIZE_URL = "https://trakt.tv/oauth/authorize";
@@ -27,6 +43,9 @@ const TRAKT_API_BASE_URL = "https://api.trakt.tv";
 export const TRAKT_OAUTH_STATE_COOKIE = "screenlantern-trakt-oauth-state";
 export const TRAKT_POSITIVE_RATING_MIN = 7;
 export const TRAKT_NEGATIVE_RATING_MAX = 4;
+export const TRAKT_DAILY_SYNC_STALE_HOURS = 24;
+export const TRAKT_APP_OPEN_SYNC_STALE_HOURS = 6;
+export const TRAKT_AUTO_SYNC_FAILURE_BACKOFF_HOURS = 3;
 
 interface TraktTokenResponse {
   access_token: string;
@@ -98,6 +117,139 @@ export interface TraktSyncPlan {
   watchlistShows: boolean;
 }
 
+interface TraktFreshnessInput {
+  syncMode: TraktSyncModeKey;
+  lastSyncedAt?: Date | null;
+  lastSyncStatus?: TraktSyncStatus | null;
+  now?: Date;
+}
+
+interface TraktAutoSyncInput extends TraktFreshnessInput {
+  lastSyncAttemptedAt?: Date | null;
+}
+
+function hoursToMs(hours: number) {
+  return hours * 60 * 60 * 1000;
+}
+
+function getTraktFreshnessWindowMs(mode: TraktSyncModeKey) {
+  if (mode === "ON_LOGIN_OR_APP_OPEN") {
+    return hoursToMs(TRAKT_APP_OPEN_SYNC_STALE_HOURS);
+  }
+
+  return hoursToMs(TRAKT_DAILY_SYNC_STALE_HOURS);
+}
+
+function wasRecentlyAttempted(attemptedAt?: Date | null, now = new Date()) {
+  if (!attemptedAt) {
+    return false;
+  }
+
+  return (
+    now.getTime() - attemptedAt.getTime() <
+    hoursToMs(TRAKT_AUTO_SYNC_FAILURE_BACKOFF_HOURS)
+  );
+}
+
+export function getTraktFreshnessState(args: TraktFreshnessInput): {
+  state: TraktFreshnessStateKey;
+  message: string;
+} {
+  const now = args.now ?? new Date();
+
+  if (!args.lastSyncedAt) {
+    if (args.syncMode === "DAILY") {
+      return {
+        state: "NEVER_SYNCED",
+        message:
+          "Run Sync now once, then ScreenLantern can keep your Trakt data fresh each day.",
+      };
+    }
+
+    if (args.syncMode === "ON_LOGIN_OR_APP_OPEN") {
+      return {
+        state: "NEVER_SYNCED",
+        message:
+          "ScreenLantern will import from Trakt the next time you sign in or reopen the app.",
+      };
+    }
+
+    return {
+      state: "NEVER_SYNCED",
+      message:
+        "Automatic Trakt refresh is off, so use Sync now whenever you want fresh personal history.",
+    };
+  }
+
+  const isStale =
+    args.lastSyncStatus === TraktSyncStatus.NEEDS_REAUTH ||
+    now.getTime() - args.lastSyncedAt.getTime() > getTraktFreshnessWindowMs(args.syncMode);
+
+  if (!isStale) {
+    return {
+      state: "FRESH",
+      message:
+        args.syncMode === "ON_LOGIN_OR_APP_OPEN"
+          ? "Your Trakt data looks current for sign-in and app-open refreshes."
+          : args.syncMode === "DAILY"
+            ? "Your Trakt data looks current for the daily refresh window."
+            : "Automatic refresh is off, and your personal Trakt import still looks current from the last sync.",
+    };
+  }
+
+  return {
+    state: "STALE",
+    message:
+      args.syncMode === "OFF"
+        ? "Automatic Trakt refresh is off, so this imported data may be stale until you sync manually."
+        : args.syncMode === "DAILY"
+          ? "Your daily Trakt refresh is due the next time ScreenLantern can sync."
+          : "ScreenLantern will try to refresh Trakt the next time you sign in or reopen the app.",
+  };
+}
+
+export function shouldAutoSyncTraktConnection(args: TraktAutoSyncInput): {
+  shouldSync: boolean;
+  reason: TraktAutoSyncResult["reason"];
+} {
+  const now = args.now ?? new Date();
+
+  if (args.syncMode === "OFF") {
+    return { shouldSync: false, reason: "disabled" };
+  }
+
+  if (args.lastSyncStatus === TraktSyncStatus.NEEDS_REAUTH) {
+    return { shouldSync: false, reason: "needs_reauth" };
+  }
+
+  if (!args.lastSyncedAt) {
+    if (args.syncMode === "DAILY") {
+      return { shouldSync: false, reason: "manual_bootstrap_required" };
+    }
+
+    if (wasRecentlyAttempted(args.lastSyncAttemptedAt, now)) {
+      return { shouldSync: false, reason: "backoff" };
+    }
+
+    return { shouldSync: true, reason: "never_synced" };
+  }
+
+  const freshness = getTraktFreshnessState(args);
+
+  if (freshness.state !== "STALE") {
+    return { shouldSync: false, reason: "fresh_enough" };
+  }
+
+  if (
+    args.lastSyncStatus === TraktSyncStatus.ERROR &&
+    wasRecentlyAttempted(args.lastSyncAttemptedAt, now)
+  ) {
+    return { shouldSync: false, reason: "backoff" };
+  }
+
+  return { shouldSync: true, reason: "stale" };
+}
+
 function traktConfigured() {
   return Boolean(env.traktUseMockData || (env.traktClientId && env.traktClientSecret));
 }
@@ -126,6 +278,271 @@ function getTokenExpiresAt(payload: TraktTokenResponse) {
 
 function safeIso(value?: Date | null) {
   return value ? value.toISOString() : null;
+}
+
+function normalizeTraktSyncTrigger(
+  trigger?: "manual" | "auto" | "internal" | null,
+): TraktSyncTriggerKey {
+  return trigger === "manual" ? "MANUAL" : "AUTOMATIC";
+}
+
+function buildRecentImportTimestamp(item: MockTraktTitleItem, kind: TraktRecentImportKind) {
+  if (kind === "WATCHED") {
+    return item.watchedAt ?? null;
+  }
+
+  if (kind === "WATCHLIST") {
+    return item.watchlistedAt ?? null;
+  }
+
+  return item.ratedAt ?? null;
+}
+
+function buildRecentImportItem(
+  item: MockTraktTitleItem,
+  kind: TraktRecentImportKind,
+): TraktRecentImportItem {
+  return {
+    tmdbId: item.tmdbId,
+    mediaType: item.mediaType,
+    title: item.title,
+    kind,
+    importedAt: buildRecentImportTimestamp(item, kind),
+  };
+}
+
+function compareRecentImportItems(
+  left: TraktRecentImportItem,
+  right: TraktRecentImportItem,
+) {
+  const leftTime = left.importedAt ? Date.parse(left.importedAt) : 0;
+  const rightTime = right.importedAt ? Date.parse(right.importedAt) : 0;
+
+  return rightTime - leftTime;
+}
+
+function summarizeCount(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function formatJoinedSummary(parts: string[]) {
+  if (parts.length === 0) {
+    return "";
+  }
+
+  if (parts.length === 1) {
+    return parts[0]!;
+  }
+
+  if (parts.length === 2) {
+    return `${parts[0]} and ${parts[1]}`;
+  }
+
+  return `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}`;
+}
+
+function parseStoredSyncSummary(json: Prisma.JsonValue | null): TraktLastSyncSummary | null {
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    return null;
+  }
+
+  const value = json as Record<string, unknown>;
+  const imported = value.imported;
+  const cleared = value.cleared;
+  const recentImports = Array.isArray(value.recentImports) ? value.recentImports : [];
+
+  if (
+    !imported ||
+    typeof imported !== "object" ||
+    !cleared ||
+    typeof cleared !== "object"
+  ) {
+    return null;
+  }
+
+  const normalizedRecentImports: TraktRecentImportItem[] = [];
+
+  for (const item of recentImports) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+
+    const preview = item as Record<string, unknown>;
+    const kind = preview.kind;
+    const mediaType = preview.mediaType;
+    const title = preview.title;
+    const tmdbId = preview.tmdbId;
+
+    if (
+      typeof tmdbId !== "number" ||
+      (kind !== "WATCHED" &&
+        kind !== "WATCHLIST" &&
+        kind !== "LIKE" &&
+        kind !== "DISLIKE") ||
+      (mediaType !== "movie" && mediaType !== "tv") ||
+      typeof title !== "string"
+    ) {
+      continue;
+    }
+
+    normalizedRecentImports.push({
+      tmdbId,
+      mediaType,
+      title,
+      kind,
+      importedAt: typeof preview.importedAt === "string" ? preview.importedAt : null,
+    });
+  }
+
+  return {
+    trigger:
+      value.trigger === "MANUAL" || value.trigger === "AUTOMATIC"
+        ? value.trigger
+        : "MANUAL",
+    changed: value.changed === true,
+    imported: {
+      watched:
+        typeof (imported as Record<string, unknown>).watched === "number"
+          ? ((imported as Record<string, unknown>).watched as number)
+          : 0,
+      watchlist:
+        typeof (imported as Record<string, unknown>).watchlist === "number"
+          ? ((imported as Record<string, unknown>).watchlist as number)
+          : 0,
+      likes:
+        typeof (imported as Record<string, unknown>).likes === "number"
+          ? ((imported as Record<string, unknown>).likes as number)
+          : 0,
+      dislikes:
+        typeof (imported as Record<string, unknown>).dislikes === "number"
+          ? ((imported as Record<string, unknown>).dislikes as number)
+          : 0,
+    },
+    cleared: {
+      watched:
+        typeof (cleared as Record<string, unknown>).watched === "number"
+          ? ((cleared as Record<string, unknown>).watched as number)
+          : 0,
+      watchlist:
+        typeof (cleared as Record<string, unknown>).watchlist === "number"
+          ? ((cleared as Record<string, unknown>).watchlist as number)
+          : 0,
+      ratings:
+        typeof (cleared as Record<string, unknown>).ratings === "number"
+          ? ((cleared as Record<string, unknown>).ratings as number)
+          : 0,
+    },
+    skippedWithoutTmdb:
+      typeof value.skippedWithoutTmdb === "number" ? value.skippedWithoutTmdb : 0,
+    recentImports: normalizedRecentImports,
+  };
+}
+
+function buildTraktSuccessReview(summary: TraktLastSyncSummary): TraktSyncReview {
+  const ratingCount = summary.imported.likes + summary.imported.dislikes;
+  const importedParts = [
+    summary.imported.watched > 0
+      ? summarizeCount(summary.imported.watched, "watched title")
+      : null,
+    summary.imported.watchlist > 0
+      ? summarizeCount(summary.imported.watchlist, "watchlist item")
+      : null,
+    ratingCount > 0 ? summarizeCount(ratingCount, "rating") : null,
+  ].filter(Boolean) as string[];
+
+  const clearedParts = [
+    summary.cleared.watched > 0
+      ? summarizeCount(summary.cleared.watched, "watched import")
+      : null,
+    summary.cleared.watchlist > 0
+      ? summarizeCount(summary.cleared.watchlist, "watchlist import")
+      : null,
+    summary.cleared.ratings > 0
+      ? summarizeCount(summary.cleared.ratings, "rating signal")
+      : null,
+  ].filter(Boolean) as string[];
+
+  if (!summary.changed) {
+    return {
+      state: "no_changes",
+      triggerLabel:
+        summary.trigger === "MANUAL" ? "Manual sync" : "Automatic sync",
+      headline: "No new Trakt changes found.",
+      detail:
+        "ScreenLantern did not need to update your imported watched history, ratings, or watchlist on the last sync.",
+      skippedNote:
+        summary.skippedWithoutTmdb > 0
+          ? `Skipped ${summarizeCount(summary.skippedWithoutTmdb, "title")} that ScreenLantern could not match cleanly yet.`
+          : null,
+      recentImports: [],
+    };
+  }
+
+  let headline = "Updated your imported Trakt state.";
+
+  if (importedParts.length > 0) {
+    headline = `Imported ${formatJoinedSummary(importedParts)}.`;
+  } else if (clearedParts.length > 0) {
+    headline = "Updated your imported Trakt state to match Trakt.";
+  }
+
+  const detailParts = [
+    clearedParts.length > 0
+      ? `Removed ${formatJoinedSummary(clearedParts)} that are no longer on Trakt.`
+      : null,
+  ].filter(Boolean) as string[];
+
+  return {
+    state: "success",
+    triggerLabel: summary.trigger === "MANUAL" ? "Manual sync" : "Automatic sync",
+    headline,
+    detail:
+      detailParts[0] ??
+      "Imported personal watched history, ratings, and watchlist changes now feed your solo recommendations and reminders.",
+    skippedNote:
+      summary.skippedWithoutTmdb > 0
+        ? `Skipped ${summarizeCount(summary.skippedWithoutTmdb, "title")} that ScreenLantern could not match cleanly yet.`
+        : null,
+    recentImports: summary.recentImports,
+  };
+}
+
+export function buildTraktSyncReview(args: {
+  lastSyncStatus?: TraktSyncStatus | null;
+  lastSyncError?: string | null;
+  lastSyncTrigger?: TraktSyncTriggerKey | null;
+  lastSyncSummary?: TraktLastSyncSummary | null;
+}): TraktSyncReview | null {
+  if (!args.lastSyncStatus && !args.lastSyncSummary) {
+    return null;
+  }
+
+  if (
+    args.lastSyncStatus === TraktSyncStatus.ERROR ||
+    args.lastSyncStatus === TraktSyncStatus.NEEDS_REAUTH
+  ) {
+    return {
+      state: "failed",
+      triggerLabel:
+        args.lastSyncTrigger === "MANUAL" ? "Manual sync" : "Automatic sync",
+      headline:
+        args.lastSyncStatus === TraktSyncStatus.NEEDS_REAUTH
+          ? "Sync failed. Reconnect Trakt to continue."
+          : "Sync failed. Try again in a moment.",
+      detail:
+        args.lastSyncStatus === TraktSyncStatus.NEEDS_REAUTH
+          ? "ScreenLantern could not refresh your Trakt access, so imported watched history and ratings may stop updating until you reconnect."
+          : "Your existing imported data is still safe, but ScreenLantern could not refresh it on the last attempt.",
+      skippedNote: null,
+      recentImports: [],
+    };
+  }
+
+  if (args.lastSyncSummary) {
+    return buildTraktSuccessReview(args.lastSyncSummary);
+  }
+
+  return null;
 }
 
 function compareActivityTimestamps(current?: string | null, previous?: string | null) {
@@ -619,6 +1036,7 @@ async function syncImportedWatchedCategory(args: {
   const incomingIds = new Set<string>();
   let imported = 0;
   let skippedWithoutTmdb = 0;
+  const recentImports: TraktRecentImportItem[] = [];
 
   for (const item of args.items) {
     if (!item.tmdbId) {
@@ -650,6 +1068,7 @@ async function syncImportedWatchedCategory(args: {
 
     if (result.changed) {
       imported += 1;
+      recentImports.push(buildRecentImportItem(item, "WATCHED"));
     }
   }
 
@@ -669,6 +1088,7 @@ async function syncImportedWatchedCategory(args: {
     imported,
     cleared,
     skippedWithoutTmdb,
+    recentImports,
   };
 }
 
@@ -699,6 +1119,7 @@ async function syncImportedWatchlistCategory(args: {
   const incomingIds = new Set<string>();
   let imported = 0;
   let skippedWithoutTmdb = 0;
+  const recentImports: TraktRecentImportItem[] = [];
 
   for (const item of args.items) {
     if (!item.tmdbId) {
@@ -739,6 +1160,7 @@ async function syncImportedWatchlistCategory(args: {
 
     if (result.changed) {
       imported += 1;
+      recentImports.push(buildRecentImportItem(item, "WATCHLIST"));
     }
   }
 
@@ -758,6 +1180,7 @@ async function syncImportedWatchlistCategory(args: {
     imported,
     cleared,
     skippedWithoutTmdb,
+    recentImports,
   };
 }
 
@@ -792,6 +1215,7 @@ async function syncImportedRatingsCategory(args: {
   let importedDislikes = 0;
   let cleared = 0;
   let skippedWithoutTmdb = 0;
+  const recentImports: TraktRecentImportItem[] = [];
 
   for (const item of args.items) {
     if (!item.tmdbId) {
@@ -855,6 +1279,7 @@ async function syncImportedRatingsCategory(args: {
 
         if (result.changed) {
           importedLikes += 1;
+          recentImports.push(buildRecentImportItem(item, "LIKE"));
         }
       }
       continue;
@@ -879,6 +1304,7 @@ async function syncImportedRatingsCategory(args: {
 
       if (result.changed) {
         importedDislikes += 1;
+        recentImports.push(buildRecentImportItem(item, "DISLIKE"));
       }
     }
   }
@@ -898,6 +1324,7 @@ async function syncImportedRatingsCategory(args: {
     importedDislikes,
     cleared,
     skippedWithoutTmdb,
+    recentImports,
   };
 }
 
@@ -918,16 +1345,32 @@ async function updateConnectionAfterSuccessfulRefresh(args: {
   });
 }
 
-async function getAuthorizedTraktConnection(userId: string, householdId: string) {
+async function getAuthorizedTraktConnection(args: {
+  userId: string;
+  householdId: string;
+  attemptedAt?: Date;
+}) {
   const connection = await prisma.userTraktConnection.findFirst({
     where: {
-      userId,
-      householdId,
+      userId: args.userId,
+      householdId: args.householdId,
     },
   });
 
   if (!connection) {
     throw new Error("Connect Trakt before running a sync.");
+  }
+
+  if (args.attemptedAt) {
+    await prisma.userTraktConnection.update({
+      where: {
+        userId: args.userId,
+      },
+      data: {
+        householdId: args.householdId,
+        lastSyncAttemptedAt: args.attemptedAt,
+      },
+    });
   }
 
   let accessToken = decryptSecret(connection.accessTokenEncrypted);
@@ -945,6 +1388,7 @@ async function getAuthorizedTraktConnection(userId: string, householdId: string)
       await prisma.userTraktConnection.update({
         where: { id: connection.id },
         data: {
+          lastSyncAttemptedAt: args.attemptedAt ?? new Date(),
           lastSyncStatus: TraktSyncStatus.NEEDS_REAUTH,
           lastSyncError:
             error instanceof Error
@@ -973,17 +1417,54 @@ export async function getTraktConnectionSummary(args: {
       householdId: args.householdId,
     },
   });
+  if (!connection) {
+    return {
+      isAvailable: traktConfigured(),
+      isConnected: false,
+      isMockMode: env.traktUseMockData,
+      traktUsername: null,
+      syncMode: "OFF",
+      lastSyncTrigger: null,
+      lastSyncAttemptedAt: null,
+      lastSyncedAt: null,
+      lastSyncStatus: null,
+      lastSyncError: null,
+      freshnessState: "NEVER_SYNCED",
+      freshnessMessage: "Connect Trakt to keep your imported personal history fresh.",
+      importedScopes: ["watched history", "ratings", "watchlist"],
+      disconnectKeepsImportedData: true,
+      lastSyncReview: null,
+    };
+  }
+  const syncMode: TraktSyncModeKey = connection.syncMode;
+  const lastSyncSummary = parseStoredSyncSummary(connection.lastSyncSummaryJson);
+  const freshness = getTraktFreshnessState({
+    syncMode,
+    lastSyncedAt: connection.lastSyncedAt,
+    lastSyncStatus: connection.lastSyncStatus ?? null,
+  });
 
   return {
     isAvailable: traktConfigured(),
-    isConnected: Boolean(connection),
+    isConnected: true,
     isMockMode: env.traktUseMockData,
-    traktUsername: connection?.traktUsername ?? null,
-    lastSyncedAt: safeIso(connection?.lastSyncedAt),
-    lastSyncStatus: connection?.lastSyncStatus ?? null,
-    lastSyncError: connection?.lastSyncError ?? null,
+    traktUsername: connection.traktUsername ?? null,
+    syncMode,
+    lastSyncTrigger: connection.lastSyncTrigger ?? null,
+    lastSyncAttemptedAt: safeIso(connection.lastSyncAttemptedAt),
+    lastSyncedAt: safeIso(connection.lastSyncedAt),
+    lastSyncStatus: connection.lastSyncStatus ?? null,
+    lastSyncError: connection.lastSyncError ?? null,
+    freshnessState: freshness.state,
+    freshnessMessage: freshness.message,
     importedScopes: ["watched history", "ratings", "watchlist"],
     disconnectKeepsImportedData: true,
+    lastSyncReview: buildTraktSyncReview({
+      lastSyncStatus: connection.lastSyncStatus ?? null,
+      lastSyncError: connection.lastSyncError ?? null,
+      lastSyncTrigger: connection.lastSyncTrigger ?? null,
+      lastSyncSummary,
+    }),
   };
 }
 
@@ -1015,6 +1496,9 @@ export async function linkTraktAccount(args: {
       refreshTokenEncrypted: encryptSecret(token.refresh_token),
       expiresAt: getTokenExpiresAt(token),
       scope: token.scope ?? null,
+      lastSyncTrigger: null,
+      lastSyncSummaryJson: Prisma.DbNull,
+      lastSyncAttemptedAt: null,
       lastSyncStatus: null,
       lastSyncError: null,
     },
@@ -1027,6 +1511,9 @@ export async function linkTraktAccount(args: {
       refreshTokenEncrypted: encryptSecret(token.refresh_token),
       expiresAt: getTokenExpiresAt(token),
       scope: token.scope ?? null,
+      syncMode: TraktSyncMode.DAILY,
+      lastSyncTrigger: null,
+      lastSyncSummaryJson: Prisma.DbNull,
     },
   });
 }
@@ -1055,15 +1542,49 @@ export async function disconnectTraktAccount(args: {
   });
 }
 
+export async function updateTraktSyncMode(args: {
+  userId: string;
+  householdId: string;
+  syncMode: TraktSyncModeKey;
+}) {
+  const connection = await prisma.userTraktConnection.findFirst({
+    where: {
+      userId: args.userId,
+      householdId: args.householdId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!connection) {
+    throw new Error("Connect Trakt before changing sync freshness.");
+  }
+
+  await prisma.userTraktConnection.update({
+    where: {
+      userId: args.userId,
+    },
+    data: {
+      householdId: args.householdId,
+      syncMode: args.syncMode,
+    },
+  });
+}
+
 export async function syncTraktAccount(args: {
   userId: string;
   householdId: string;
   email: string;
+  trigger?: "manual" | "auto" | "internal";
 }) : Promise<TraktSyncResult> {
-  const { connection, accessToken } = await getAuthorizedTraktConnection(
-    args.userId,
-    args.householdId,
-  );
+  const attemptedAt = new Date();
+  const syncTrigger = normalizeTraktSyncTrigger(args.trigger ?? "manual");
+  const { connection, accessToken } = await getAuthorizedTraktConnection({
+    userId: args.userId,
+    householdId: args.householdId,
+    attemptedAt,
+  });
 
   try {
     const currentActivities = await getTraktLastActivities({
@@ -1084,6 +1605,7 @@ export async function syncTraktAccount(args: {
     let watchlistCleared = 0;
     let ratingsCleared = 0;
     let skippedWithoutTmdb = 0;
+    const recentImports: TraktRecentImportItem[] = [];
 
     if (syncPlan.watchedMovies) {
       const result = await syncImportedWatchedCategory({
@@ -1099,6 +1621,7 @@ export async function syncTraktAccount(args: {
       watchedImported += result.imported;
       watchedCleared += result.cleared;
       skippedWithoutTmdb += result.skippedWithoutTmdb;
+      recentImports.push(...result.recentImports);
     }
 
     if (syncPlan.watchedShows) {
@@ -1115,6 +1638,7 @@ export async function syncTraktAccount(args: {
       watchedImported += result.imported;
       watchedCleared += result.cleared;
       skippedWithoutTmdb += result.skippedWithoutTmdb;
+      recentImports.push(...result.recentImports);
     }
 
     if (syncPlan.watchlistMovies) {
@@ -1131,6 +1655,7 @@ export async function syncTraktAccount(args: {
       watchlistImported += result.imported;
       watchlistCleared += result.cleared;
       skippedWithoutTmdb += result.skippedWithoutTmdb;
+      recentImports.push(...result.recentImports);
     }
 
     if (syncPlan.watchlistShows) {
@@ -1147,6 +1672,7 @@ export async function syncTraktAccount(args: {
       watchlistImported += result.imported;
       watchlistCleared += result.cleared;
       skippedWithoutTmdb += result.skippedWithoutTmdb;
+      recentImports.push(...result.recentImports);
     }
 
     if (syncPlan.ratingsMovies) {
@@ -1164,6 +1690,7 @@ export async function syncTraktAccount(args: {
       dislikesImported += result.importedDislikes;
       ratingsCleared += result.cleared;
       skippedWithoutTmdb += result.skippedWithoutTmdb;
+      recentImports.push(...result.recentImports);
     }
 
     if (syncPlan.ratingsShows) {
@@ -1181,25 +1708,20 @@ export async function syncTraktAccount(args: {
       dislikesImported += result.importedDislikes;
       ratingsCleared += result.cleared;
       skippedWithoutTmdb += result.skippedWithoutTmdb;
+      recentImports.push(...result.recentImports);
     }
 
     const syncedAt = new Date();
-
-    await prisma.userTraktConnection.update({
-      where: {
-        userId: args.userId,
-      },
-      data: {
-        householdId: args.householdId,
-        lastActivitiesJson: currentActivities as unknown as Prisma.InputJsonValue,
-        lastSyncedAt: syncedAt,
-        lastSyncStatus: TraktSyncStatus.SUCCESS,
-        lastSyncError: null,
-      },
-    });
-
-    return {
-      syncedAt: syncedAt.toISOString(),
+    const syncSummary: TraktLastSyncSummary = {
+      trigger: syncTrigger,
+      changed:
+        watchedImported > 0 ||
+        watchlistImported > 0 ||
+        likesImported > 0 ||
+        dislikesImported > 0 ||
+        watchedCleared > 0 ||
+        watchlistCleared > 0 ||
+        ratingsCleared > 0,
       imported: {
         watched: watchedImported,
         watchlist: watchlistImported,
@@ -1212,6 +1734,44 @@ export async function syncTraktAccount(args: {
         ratings: ratingsCleared,
       },
       skippedWithoutTmdb,
+      recentImports: [...recentImports]
+        .sort(compareRecentImportItems)
+        .slice(0, 5),
+    };
+
+    await prisma.userTraktConnection.update({
+      where: {
+        userId: args.userId,
+      },
+      data: {
+        householdId: args.householdId,
+        lastActivitiesJson: currentActivities as unknown as Prisma.InputJsonValue,
+        lastSyncTrigger: syncTrigger as TraktSyncTrigger,
+        lastSyncSummaryJson: syncSummary as unknown as Prisma.InputJsonValue,
+        lastSyncAttemptedAt: attemptedAt,
+        lastSyncedAt: syncedAt,
+        lastSyncStatus: TraktSyncStatus.SUCCESS,
+        lastSyncError: null,
+      },
+    });
+
+    return {
+      syncedAt: syncedAt.toISOString(),
+      trigger: syncTrigger,
+      changed: syncSummary.changed,
+      imported: {
+        watched: watchedImported,
+        watchlist: watchlistImported,
+        likes: likesImported,
+        dislikes: dislikesImported,
+      },
+      cleared: {
+        watched: watchedCleared,
+        watchlist: watchlistCleared,
+        ratings: ratingsCleared,
+      },
+      skippedWithoutTmdb,
+      recentImports: syncSummary.recentImports,
     };
   } catch (error) {
     await prisma.userTraktConnection.update({
@@ -1219,6 +1779,8 @@ export async function syncTraktAccount(args: {
         userId: args.userId,
       },
       data: {
+        lastSyncTrigger: syncTrigger as TraktSyncTrigger,
+        lastSyncAttemptedAt: attemptedAt,
         lastSyncStatus:
           error instanceof Error &&
           error.message.toLowerCase().includes("reconnect")
@@ -1231,4 +1793,120 @@ export async function syncTraktAccount(args: {
 
     throw error;
   }
+}
+
+export async function maybeRunAutoTraktSync(args: {
+  userId: string;
+  householdId: string;
+  email: string;
+}): Promise<TraktAutoSyncResult> {
+  const connection = await prisma.userTraktConnection.findFirst({
+    where: {
+      userId: args.userId,
+      householdId: args.householdId,
+    },
+    select: {
+      syncMode: true,
+      lastSyncedAt: true,
+      lastSyncAttemptedAt: true,
+      lastSyncStatus: true,
+    },
+  });
+
+  if (!connection) {
+    return {
+      outcome: "skipped",
+      reason: "not_connected",
+    };
+  }
+
+  const decision = shouldAutoSyncTraktConnection({
+    syncMode: connection.syncMode,
+    lastSyncedAt: connection.lastSyncedAt,
+    lastSyncAttemptedAt: connection.lastSyncAttemptedAt,
+    lastSyncStatus: connection.lastSyncStatus,
+  });
+
+  if (!decision.shouldSync) {
+    return {
+      outcome: "skipped",
+      reason: decision.reason,
+    };
+  }
+
+  try {
+    const result = await syncTraktAccount({
+      userId: args.userId,
+      householdId: args.householdId,
+      email: args.email,
+      trigger: "auto",
+    });
+
+    return {
+      outcome: "synced",
+      reason: decision.reason,
+      result,
+    };
+  } catch (error) {
+    return {
+      outcome: "failed",
+      reason: "error",
+      error:
+        error instanceof Error ? error.message : "Unable to sync Trakt right now.",
+    };
+  }
+}
+
+export async function runInternalTraktSync(args: {
+  userId: string;
+  force?: boolean;
+}): Promise<TraktAutoSyncResult> {
+  const user = await prisma.user.findUnique({
+    where: {
+      id: args.userId,
+    },
+    select: {
+      id: true,
+      email: true,
+      householdId: true,
+    },
+  });
+
+  if (!user) {
+    return {
+      outcome: "skipped",
+      reason: "not_connected",
+      error: "User not found.",
+    };
+  }
+
+  if (args.force) {
+    try {
+      const result = await syncTraktAccount({
+        userId: user.id,
+        householdId: user.householdId,
+        email: user.email,
+        trigger: "internal",
+      });
+
+      return {
+        outcome: "synced",
+        reason: "stale",
+        result,
+      };
+    } catch (error) {
+      return {
+        outcome: "failed",
+        reason: "error",
+        error:
+          error instanceof Error ? error.message : "Unable to sync Trakt right now.",
+      };
+    }
+  }
+
+  return maybeRunAutoTraktSync({
+    userId: user.id,
+    householdId: user.householdId,
+    email: user.email,
+  });
 }

@@ -690,6 +690,55 @@
   - Manual-state preservation coverage
   - Privacy-boundary and disconnect-copy coverage
 
+### Ticket 9.6: Add Trakt sync freshness modes and opportunistic background refresh
+
+- Priority: P1
+- Goal: Keep imported personal history reasonably current without forcing users to click `Sync now` every time they return.
+- Scope:
+  - Add user-owned Trakt sync modes: `OFF`, `DAILY`, and `ON_LOGIN_OR_APP_OPEN`
+  - Track last attempted sync time plus last successful sync time on the existing Trakt connection row
+  - Reuse the existing delta-sync import path for manual, app-open, and internal scheduled sync calls
+  - Add freshness-aware Settings copy and a protected internal sync endpoint for future scheduler use
+- Technical notes:
+  - Prefer extending `UserTraktConnection` over introducing a second scheduling table
+  - `DAILY` should stay conservative and require a first manual import before automatic refreshes begin
+  - Automatic failures should back off instead of retrying on every page load
+  - Internal scheduler calls must stay protected by a secret and reuse the same sync service
+- Acceptance criteria:
+  - A connected user can choose a Trakt sync freshness mode in Settings
+  - Settings shows last attempted sync, last successful sync, and whether imported data may be stale
+  - App-open sync can refresh stale Trakt data without duplicating imported rows or overwriting manual ScreenLantern state
+  - A future scheduler can call a protected internal route instead of a second import code path
+- Test expectations:
+  - Sync-mode persistence coverage
+  - Freshness/stale decision coverage
+  - Opportunistic app-open sync coverage
+  - Failure-backoff and idempotency coverage
+
+### Ticket 9.7: Add Trakt sync review and import-summary UX
+
+- Priority: P2
+- Goal: Help users trust Trakt syncing by showing what the last sync actually did without turning Settings into a debug dashboard.
+- Scope:
+  - Persist the smallest clean last-sync summary on the existing `UserTraktConnection` row
+  - Show whether the last sync was manual or automatic
+  - Surface changed imports, no-change syncs, and failed sync guidance in Settings
+  - Add a compact recent-import preview when the last sync made meaningful changes
+- Technical notes:
+  - Reuse the existing sync result counts and delta-sync path instead of a second sync-history system
+  - Keep the summary user-facing and compact; do not expose raw token or internal error detail
+  - Store only the most recent sync summary in MVP
+- Acceptance criteria:
+  - Settings clearly shows what the last sync did
+  - Users can tell whether the last sync was manual or automatic
+  - No-change syncs are called out directly
+  - Failed syncs give calm reconnect or retry guidance
+- Test expectations:
+  - Successful sync-review rendering coverage
+  - No-change review coverage
+  - Failed-sync guidance coverage
+  - Manual-versus-automatic labeling coverage
+
 ## Epic 10: Testing, Docs, Polish, and MVP Hardening
 
 ### Ticket 10.1: Add smoke and unit coverage for MVP flows

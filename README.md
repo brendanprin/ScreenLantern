@@ -24,7 +24,8 @@ The MVP is intentionally focused on discovery, library management, explainable r
 - Search and browse flows across movies and TV
 - Title detail pages with metadata and provider availability
 - Streaming-service handoff with honest `Open in service` actions when ScreenLantern can build a reliable destination URL
-- Trakt account linking with manual sync for personal watched history, ratings, and watchlist import
+- Trakt account linking with manual sync plus configurable sync freshness for personal watched history, ratings, and watchlist import
+- Last-sync review in Settings with manual-versus-automatic labeling, recent import preview, and no-change/failure summaries
 - Personal library actions: watchlist, watched, like, dislike, hide
 - Solo recommendation mode
 - Combined household recommendation mode
@@ -50,7 +51,7 @@ The MVP is intentionally focused on discovery, library management, explainable r
 - Search and Browse intentionally stay lighter-weight shortlist surfaces. They help users narrow candidates first, then move into detail for richer actions.
 - Reminders and Activity are useful supporting surfaces, but they are intentionally secondary to the core discovery-to-handoff flow.
 
-## Local Setup
+## Local Development
 
 1. Copy `.env.example` to `.env`.
 2. Start PostgreSQL:
@@ -76,6 +77,8 @@ docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403210000_shared_watchlist_entries/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260403223000_household_activity/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260404103000_trakt_connections/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406113000_trakt_sync_freshness/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406153000_trakt_sync_review/migration.sql
 ```
 
 5. Generate the Prisma client:
@@ -97,6 +100,51 @@ npm run dev
 ```
 
 8. Open [http://localhost:3000](http://localhost:3000).
+
+### Verified Development Commands
+
+```bash
+docker compose up -d
+npm run db:generate
+npm run db:seed
+npm run dev
+```
+
+Useful feature verification:
+
+```bash
+npx tsc --noEmit
+npm run lint
+npm run test:unit
+npm run test:e2e
+```
+
+## Local Production-Like Run
+
+1. Use the same `.env` file and running PostgreSQL container as development mode.
+2. Apply the checked-in SQL migrations if you have not already.
+3. Regenerate Prisma and reseed if you want the demo household locally:
+
+```bash
+npm run db:generate
+npm run db:seed
+```
+
+4. Build the app:
+
+```bash
+npm run build
+```
+
+5. Start the built app:
+
+```bash
+npm run start
+```
+
+Production-like local caveat:
+
+- If you ran `npm run dev` after the last build, run `npm run build` again before `npm run start`. In local development, `.next` can contain dev artifacts after a later `next dev` session.
 
 ## Demo Credentials
 
@@ -124,6 +172,13 @@ npm run dev
 - `TRAKT_CLIENT_SECRET`: Trakt OAuth client secret
 - `TRAKT_REDIRECT_URI`: Trakt OAuth callback URL, defaults to `/api/integrations/trakt/callback`
 - `TRAKT_USE_MOCK_DATA`: set `1` to force deterministic local Trakt mock sync data
+- `INTERNAL_SYNC_SECRET`: optional secret for protected internal Trakt sync calls; falls back to `AUTH_SECRET` if omitted
+
+Recommended local integration modes:
+
+- Development and Playwright: `TMDB_USE_MOCK_DATA=1` and `TRAKT_USE_MOCK_DATA=1`
+- Production-like local check with live catalog: `TMDB_USE_MOCK_DATA=0` plus a real `TMDB_API_KEY`
+- Trakt live OAuth: set real `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET`, and a matching `TRAKT_REDIRECT_URI`
 
 ## Release-Readiness Notes
 
@@ -132,7 +187,11 @@ npm run dev
 - If Trakt OAuth credentials are missing, Settings keeps Trakt import controls visible but clearly unavailable instead of failing silently.
 - Search and Browse cards are intentionally trimmed for MVP hardening. Richer save, fit, and handoff decisions belong on Title Detail, Home, and Library.
 - Supported `Open in service` actions remain intentionally narrow and honest. Unsupported providers still show availability without a fake handoff button.
-- Trakt import controls are intentionally title-level in MVP. Bulk import cleanup, scheduled syncs, and richer conflict-resolution tooling remain post-MVP.
+- Trakt import controls are intentionally title-level in MVP. Bulk import cleanup and richer conflict-resolution tooling remain post-MVP.
+- Trakt Settings now keeps the last sync review compact and user-facing:
+  - changed imports get a short summary plus a few recent imported titles
+  - no-change syncs say so directly
+  - failed syncs avoid raw internal error details and steer the user toward retrying or reconnecting
 
 ## TMDb Live Mode
 
@@ -186,10 +245,23 @@ npm run dev
 - ScreenLantern surfaces that source context in the personal places where it matters most:
   - Title Detail shows whether watched, watchlist, or taste state came from Trakt or from manual ScreenLantern actions
   - Library collection views can be filtered to `Imported from Trakt` or `Added in ScreenLantern` for the signed-in user's own profile
-- Sync behavior is manual in MVP:
+- Sync behavior stays deterministic and reuses one import path:
   - connect Trakt
-  - run `Sync now`
-  - later manual syncs only pull changed categories when Trakt activity timestamps indicate new work
+  - run `Sync now` for the first import
+  - later syncs, whether manual or automatic, only pull changed categories when Trakt activity timestamps indicate new work
+- Sync freshness modes:
+  - `Off`: manual sync only
+  - `Daily`: after the first successful import, ScreenLantern can refresh once per day when the user returns
+  - `On sign in or app open`: ScreenLantern can refresh more aggressively when the imported data is getting stale
+- Settings includes a lightweight sync review so users can see:
+  - whether the last sync was manual or automatic
+  - whether it imported new watched, rating, or watchlist changes
+  - when no Trakt changes were found
+  - a few recently imported titles when the last sync made real changes
+- Automatic freshness uses opportunistic triggers instead of a full job system:
+  - protected app loads can call the same sync service through an authenticated auto-sync path
+  - a protected internal route exists for future scheduler or cron use and is guarded by `INTERNAL_SYNC_SECRET`
+  - repeated failures back off instead of retrying aggressively on every page load
 - Imported title state can be cleared per title without disconnecting Trakt:
   - remove imported watched state
   - remove imported watchlist state

@@ -4,6 +4,7 @@ import { ActiveContextProvider } from "@/components/active-context-provider";
 import { ActiveContextSwitcher } from "@/components/active-context-switcher";
 import { NavLink } from "@/components/nav-link";
 import { ReminderNavLink } from "@/components/reminders/reminder-nav-link";
+import { TraktAutoSyncBootstrap } from "@/components/trakt-auto-sync-bootstrap";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { APP_NAME, NAV_ITEMS } from "@/lib/constants";
@@ -42,6 +43,7 @@ export function AppShell({
       savedGroups={savedGroups}
       initialContext={initialContext}
     >
+      <TraktAutoSyncBootstrap />
       <div className="container py-6">
         <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="flex h-fit flex-col gap-6 rounded-[32px] border border-border/80 bg-white/70 p-6 backdrop-blur">

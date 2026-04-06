@@ -3,6 +3,9 @@ export type RecommendationModeKey = "SOLO" | "GROUP";
 export type ReminderAggressivenessKey = "LIGHT" | "BALANCED" | "PROACTIVE";
 export type SharedWatchlistScopeKey = "GROUP" | "HOUSEHOLD";
 export type TraktSyncStatusKey = "SUCCESS" | "ERROR" | "NEEDS_REAUTH";
+export type TraktSyncModeKey = "OFF" | "DAILY" | "ON_LOGIN_OR_APP_OPEN";
+export type TraktSyncTriggerKey = "MANUAL" | "AUTOMATIC";
+export type TraktFreshnessStateKey = "FRESH" | "STALE" | "NEVER_SYNCED";
 export type LibrarySourceFilter = "all" | "imported" | "manual";
 export type PersonalInteractionOrigin = "manual" | "trakt";
 export type HouseholdActivityTypeKey =
@@ -237,15 +240,36 @@ export interface TraktConnectionSummary {
   isConnected: boolean;
   isMockMode: boolean;
   traktUsername?: string | null;
+  syncMode: TraktSyncModeKey;
+  lastSyncTrigger?: TraktSyncTriggerKey | null;
+  lastSyncAttemptedAt?: string | null;
   lastSyncedAt?: string | null;
   lastSyncStatus?: TraktSyncStatusKey | null;
   lastSyncError?: string | null;
+  freshnessState: TraktFreshnessStateKey;
+  freshnessMessage: string;
   importedScopes: string[];
   disconnectKeepsImportedData: boolean;
+  lastSyncReview?: TraktSyncReview | null;
 }
 
-export interface TraktSyncResult {
-  syncedAt: string;
+export type TraktRecentImportKind =
+  | "WATCHED"
+  | "WATCHLIST"
+  | "LIKE"
+  | "DISLIKE";
+
+export interface TraktRecentImportItem {
+  tmdbId: number;
+  mediaType: MediaTypeKey;
+  title: string;
+  kind: TraktRecentImportKind;
+  importedAt?: string | null;
+}
+
+export interface TraktLastSyncSummary {
+  trigger: TraktSyncTriggerKey;
+  changed: boolean;
   imported: {
     watched: number;
     watchlist: number;
@@ -258,6 +282,51 @@ export interface TraktSyncResult {
     ratings: number;
   };
   skippedWithoutTmdb: number;
+  recentImports: TraktRecentImportItem[];
+}
+
+export interface TraktSyncReview {
+  state: "never_synced" | "success" | "no_changes" | "failed";
+  triggerLabel?: string | null;
+  headline: string;
+  detail: string;
+  skippedNote?: string | null;
+  recentImports: TraktRecentImportItem[];
+}
+
+export interface TraktSyncResult {
+  syncedAt: string;
+  trigger: TraktSyncTriggerKey;
+  changed: boolean;
+  imported: {
+    watched: number;
+    watchlist: number;
+    likes: number;
+    dislikes: number;
+  };
+  cleared: {
+    watched: number;
+    watchlist: number;
+    ratings: number;
+  };
+  skippedWithoutTmdb: number;
+  recentImports: TraktRecentImportItem[];
+}
+
+export interface TraktAutoSyncResult {
+  outcome: "synced" | "skipped" | "failed";
+  reason:
+    | "not_connected"
+    | "disabled"
+    | "manual_bootstrap_required"
+    | "fresh_enough"
+    | "backoff"
+    | "needs_reauth"
+    | "never_synced"
+    | "stale"
+    | "error";
+  result?: TraktSyncResult;
+  error?: string | null;
 }
 
 export interface ReminderInboxResult {

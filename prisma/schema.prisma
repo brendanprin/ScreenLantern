@@ -71,6 +71,17 @@ enum TraktSyncStatus {
   NEEDS_REAUTH
 }
 
+enum TraktSyncMode {
+  OFF
+  DAILY
+  ON_LOGIN_OR_APP_OPEN
+}
+
+enum TraktSyncTrigger {
+  MANUAL
+  AUTOMATIC
+}
+
 model Household {
   id                 String              @id @default(cuid())
   name               String
@@ -312,7 +323,11 @@ model UserTraktConnection {
   refreshTokenEncrypted String
   expiresAt            DateTime
   scope                String?
+  syncMode             TraktSyncMode   @default(DAILY)
   lastActivitiesJson   Json?
+  lastSyncTrigger      TraktSyncTrigger?
+  lastSyncSummaryJson  Json?
+  lastSyncAttemptedAt  DateTime?
   lastSyncedAt         DateTime?
   lastSyncStatus       TraktSyncStatus?
   lastSyncError        String?
@@ -322,6 +337,7 @@ model UserTraktConnection {
   household            Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
 
   @@index([householdId, updatedAt])
+  @@index([householdId, syncMode, lastSyncAttemptedAt])
 }
 
 model SharedWatchlistEntry {

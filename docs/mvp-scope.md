@@ -23,7 +23,7 @@
 - Search and discover flows using TMDb
 - Title details with provider availability
 - Streaming-service handoff with honest `Open in service` actions where reliable provider destinations exist
-- Trakt account linking with manual import of personal watched history, ratings, and watchlist
+- Trakt account linking with manual import plus configurable automatic freshness for personal watched history, ratings, and watchlist
 - Live TMDb hardening with normalization, provider caching, and graceful fallback states
 - Personal library actions and views
 - Solo recommendation feed
@@ -55,7 +55,7 @@
 - Real-time presence or collaborative sessions
 - Direct streaming-service account sync beyond Trakt
 - Deep provider linking and watch intent handoff
-- Background or scheduled Trakt sync infrastructure
+- Full background-job or cron infrastructure for Trakt sync beyond the built-in opportunistic and internal trigger paths
 - Background TMDb refresh jobs and sophisticated cache invalidation
 - Push or email notifications for watchlist availability changes
 - Background or scheduled reminder generation infrastructure
@@ -116,8 +116,11 @@ The MVP is considered complete when:
 - The app can surface honest `Open in service` actions on detail and key card surfaces, while falling back gracefully when provider availability exists without a supported handoff URL
 - A signed-in user can connect Trakt, manually sync personal watched history, ratings, and watchlist, and keep those imports personal to their own profile
 - Later Trakt syncs are idempotent and do not repeatedly duplicate imported interactions
+- A signed-in user can choose `Off`, `Daily`, or `On sign in or app open` Trakt freshness modes in Settings
+- Opportunistic Trakt sync on app open can refresh stale personal history without creating duplicate imported rows or overwriting manual ScreenLantern state
 - Source-aware personal state is visible on Title Detail and lightweight Library collection views so users can tell what came from Trakt versus ScreenLantern
 - A signed-in user can clear imported watched, watchlist, or rating-derived taste state for one title without removing manual ScreenLantern state
+- Settings shows a compact last-sync review so users can tell whether the last Trakt sync was manual or automatic, whether anything changed, and which recent titles were imported
 - The repository contains product, architecture, and roadmap documentation
 - The ticket breakdown is detailed enough to manage follow-on work
 
@@ -134,7 +137,10 @@ The MVP is considered complete when:
 - A production-style MVP check should run with live TMDb configuration, not silent mock-only assumptions.
 - Settings should make mock versus live catalog mode explicit to developers and reviewers.
 - Settings should also make Trakt live versus mock import mode explicit, and missing Trakt OAuth config should degrade into a clear disabled state.
+- Settings should clearly show last successful sync time, last attempted sync time, sync freshness mode, and whether imported data may be stale.
+- Settings should show last-sync review states that are calm and user-facing: changed imports, no changes found, or reconnect/retry guidance after failures.
 - Settings should clearly explain that disconnect stops future syncs but keeps already imported personal data until the user clears or changes it manually.
+- The future scheduler hook should stay protected behind an internal secret and should reuse the same sync service as manual and app-open sync.
 - Smoke coverage should prioritize the core path:
   - auth
   - context switch

@@ -301,8 +301,20 @@ This keeps “who is this best for?” honest, deterministic, and reusable witho
    - watchlist shows
 6. Imported titles are matched by TMDb ids where possible and normalized into `TitleCache` rows before interaction writes.
 7. Imported interaction rows are written with `SourceContext.IMPORTED` so later syncs can update imported state without trampling manual ScreenLantern changes.
-8. Title Detail can clear imported watched, watchlist, or rating-derived state for one title without disconnecting Trakt or deleting manual ScreenLantern state.
-9. Disconnect removes the stored Trakt connection and encrypted tokens but intentionally leaves already imported personal interaction rows in place.
+8. `UserTraktConnection` also stores a user-owned sync mode plus last-attempt metadata so freshness decisions stay on the same record as the OAuth tokens.
+9. The same row stores a compact last-sync trigger and summary payload so Settings can show what changed, whether the sync was manual or automatic, and a few recent imported titles without a separate sync-history table.
+10. Automatic refresh calls the same `syncTraktAccount` service through two thin entry points:
+   - an authenticated app-open trigger for signed-in users
+   - a secret-protected internal route for future scheduler or cron use
+11. `DAILY` mode requires a first manual import, then refreshes opportunistically when the last successful sync is older than one day.
+12. `ON_LOGIN_OR_APP_OPEN` mode can refresh more aggressively, using a shorter stale window and allowing the first import to happen automatically after connect.
+13. Failed automatic syncs do not mutate imported data mid-stream, and repeated failures back off instead of retrying on every page load.
+14. Settings derives a lightweight sync review from the stored summary plus last status:
+   - successful changed syncs show imported counts and a recent-import preview
+   - no-change syncs say so directly
+   - failed syncs avoid raw internal error details and steer the user toward retrying or reconnecting
+15. Title Detail can clear imported watched, watchlist, or rating-derived state for one title without disconnecting Trakt or deleting manual ScreenLantern state.
+16. Disconnect removes the stored Trakt connection and encrypted tokens but intentionally leaves already imported personal interaction rows in place.
 
 ### Personal Interaction Flow
 
