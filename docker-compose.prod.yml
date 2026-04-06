@@ -31,6 +31,7 @@ services:
       AUTH_TRUST_HOST: "true"
       PORT: "3000"
       SEED_DEMO_DATA: "1"
+      SEED_DEMO_MODE: "users-only"
       NODE_ENV: production
     ports:
       - "3001:3000"

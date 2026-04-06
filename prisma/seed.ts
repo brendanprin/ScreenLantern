@@ -1,4 +1,14 @@
-process.loadEnvFile?.(".env");
+try {
+  process.loadEnvFile?.(".env");
+} catch (error) {
+  if (
+    !(error instanceof Error) ||
+    !("code" in error) ||
+    error.code !== "ENOENT"
+  ) {
+    throw error;
+  }
+}
 
 import { hash } from "bcryptjs";
 import {
@@ -12,6 +22,10 @@ import {
 import { getMockTitleDetails } from "../src/lib/mock-tmdb";
 
 const prisma = new PrismaClient();
+const demoSeedMode = process.env.SEED_DEMO_MODE ?? "full";
+const seedDemoPersonalState = demoSeedMode !== "users-only";
+const seededPreferredProviders = (providers: readonly string[]) =>
+  seedDemoPersonalState ? [...providers] : [];
 
 const DEMO_USERS = [
   {
@@ -191,7 +205,7 @@ async function main() {
           passwordHash,
           householdId: household.id,
           householdRole: user.householdRole,
-          preferredProviders: [...user.preferredProviders],
+          preferredProviders: seededPreferredProviders(user.preferredProviders),
         },
         create: {
           email: user.email,
@@ -199,7 +213,7 @@ async function main() {
           passwordHash,
           householdId: household.id,
           householdRole: user.householdRole,
-          preferredProviders: [...user.preferredProviders],
+          preferredProviders: seededPreferredProviders(user.preferredProviders),
         },
       }),
     ),
@@ -313,51 +327,53 @@ async function main() {
     },
   });
 
-  await prisma.userTitleInteraction.deleteMany({
-    where: {
-      user: {
-        householdId: household.id,
+  if (seedDemoPersonalState) {
+    await prisma.userTitleInteraction.deleteMany({
+      where: {
+        user: {
+          householdId: household.id,
+        },
       },
-    },
-  });
+    });
 
-  for (const user of DEMO_USERS) {
-    const userId = userIdByName.get(user.name)!;
+    for (const user of DEMO_USERS) {
+      const userId = userIdByName.get(user.name)!;
 
-    for (const [mediaType, tmdbId] of user.watchlist) {
-      await applyInteraction({
-        userId,
-        mediaType,
-        tmdbId,
-        interactionType: InteractionType.WATCHLIST,
-      });
-    }
+      for (const [mediaType, tmdbId] of user.watchlist) {
+        await applyInteraction({
+          userId,
+          mediaType,
+          tmdbId,
+          interactionType: InteractionType.WATCHLIST,
+        });
+      }
 
-    for (const [mediaType, tmdbId] of user.likes) {
-      await applyInteraction({
-        userId,
-        mediaType,
-        tmdbId,
-        interactionType: InteractionType.LIKE,
-      });
-    }
+      for (const [mediaType, tmdbId] of user.likes) {
+        await applyInteraction({
+          userId,
+          mediaType,
+          tmdbId,
+          interactionType: InteractionType.LIKE,
+        });
+      }
 
-    for (const [mediaType, tmdbId] of user.watched) {
-      await applyInteraction({
-        userId,
-        mediaType,
-        tmdbId,
-        interactionType: InteractionType.WATCHED,
-      });
-    }
+      for (const [mediaType, tmdbId] of user.watched) {
+        await applyInteraction({
+          userId,
+          mediaType,
+          tmdbId,
+          interactionType: InteractionType.WATCHED,
+        });
+      }
 
-    for (const [mediaType, tmdbId] of user.dislikes) {
-      await applyInteraction({
-        userId,
-        mediaType,
-        tmdbId,
-        interactionType: InteractionType.DISLIKE,
-      });
+      for (const [mediaType, tmdbId] of user.dislikes) {
+        await applyInteraction({
+          userId,
+          mediaType,
+          tmdbId,
+          interactionType: InteractionType.DISLIKE,
+        });
+      }
     }
   }
 }

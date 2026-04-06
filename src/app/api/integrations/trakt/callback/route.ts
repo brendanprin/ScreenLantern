@@ -2,10 +2,15 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getApiCurrentUserContext } from "@/lib/auth";
+import { env } from "@/lib/env";
 import { linkTraktAccount, TRAKT_OAUTH_STATE_COOKIE } from "@/lib/services/trakt";
 
-function buildSettingsRedirect(request: NextRequest, type: "success" | "error", message: string) {
-  const url = new URL("/app/settings", request.url);
+function buildAppUrl(path: string) {
+  return new URL(path, env.nextAuthUrl);
+}
+
+function buildSettingsRedirect(type: "success" | "error", message: string) {
+  const url = buildAppUrl("/app/settings");
   url.searchParams.set("traktStatus", type);
   url.searchParams.set("traktMessage", message);
   return url;
@@ -21,7 +26,7 @@ export async function GET(request: NextRequest) {
   const user = await getApiCurrentUserContext();
 
   if (!user) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+    return NextResponse.redirect(buildAppUrl("/sign-in"));
   }
 
   const cookieStore = await cookies();
@@ -33,13 +38,12 @@ export async function GET(request: NextRequest) {
   const redirectUrl =
     oauthError || !code || !expectedState || expectedState !== returnedState
       ? buildSettingsRedirect(
-          request,
           "error",
           oauthError
             ? "Trakt authorization was cancelled or failed."
             : "Trakt authorization state was invalid. Please try again.",
         )
-      : buildSettingsRedirect(request, "success", "Trakt connected. Run a sync to import your history.");
+      : buildSettingsRedirect("success", "Trakt connected. Run a sync to import your history.");
 
   const response = redirectWithStateCleanup(redirectUrl);
 
@@ -58,7 +62,6 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return redirectWithStateCleanup(
       buildSettingsRedirect(
-        request,
         "error",
         error instanceof Error ? error.message : "Unable to connect Trakt.",
       ),

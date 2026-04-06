@@ -70,7 +70,7 @@ What it does:
 - waits for the database
 - runs `prisma migrate deploy`
 - generates the Prisma client
-- seeds the demo household once when the database is empty
+- seeds the full demo household once when the database is empty, including demo title interactions
 
 Stop it with:
 
@@ -172,7 +172,8 @@ What it does:
 - starts the built app on [http://localhost:3001](http://localhost:3001)
 - waits for the database
 - runs `prisma migrate deploy`
-- seeds demo data once when the production-like database is empty
+- seeds demo users and household structure once when the production-like database is empty
+- does not preload demo watch history, ratings, watchlist items, or provider preferences in the prod-like stack
 
 Stop it with:
 

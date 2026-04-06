@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -58,7 +58,22 @@ function formatTimestamp(value?: string | null) {
     return "Never synced";
   }
 
-  return new Date(value).toLocaleString();
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatTimestampFallback(value?: string | null) {
+  if (!value) {
+    return "Never synced";
+  }
+
+  return `${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(value))} UTC`;
 }
 
 function formatSyncSummary(result: TraktSyncResult) {
@@ -102,6 +117,7 @@ export function TraktIntegrationForm({
   notice = null,
 }: TraktIntegrationFormProps) {
   const router = useRouter();
+  const [hasHydrated, setHasHydrated] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [syncMode, setSyncMode] = useState<TraktSyncModeKey>(summary.syncMode);
   const [message, setMessage] = useState<{
@@ -115,6 +131,14 @@ export function TraktIntegrationForm({
         }
       : null,
   );
+
+  useEffect(() => {
+    setHasHydrated(true);
+  }, []);
+
+  function renderTimestamp(value?: string | null) {
+    return hasHydrated ? formatTimestamp(value) : formatTimestampFallback(value);
+  }
 
   async function beginConnect() {
     setMessage(null);
@@ -272,10 +296,35 @@ export function TraktIntegrationForm({
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Link Trakt to import your personal watched history, ratings, and watchlist.
-          ScreenLantern keeps that data personal to this profile and does not turn it
-          into shared household state automatically.
+          Import your personal watched history, ratings, and watchlist from Trakt.
+          Imported data stays personal to this profile unless you explicitly share
+          something elsewhere in ScreenLantern.
         </p>
+
+        <details className="rounded-2xl border border-border/70 bg-background/40 p-4 text-sm text-muted-foreground">
+          <summary className="cursor-pointer list-none font-medium text-foreground transition hover:text-primary">
+            What to know about Trakt imports
+          </summary>
+          <div className="mt-3 space-y-4">
+            <div data-testid="trakt-recommendation-impact">
+              <p className="font-medium text-foreground">How imports affect recommendations</p>
+              <ul className="mt-2 space-y-2">
+                <li>Imported watched history helps ScreenLantern avoid resurfacing titles you have already seen.</li>
+                <li>Imported ratings shape your personal recommendation profile without turning those signals into group taste automatically.</li>
+                <li>Imported watchlist titles feed your personal reminders, resurfacing lanes, and Library decision surfaces.</li>
+              </ul>
+            </div>
+
+            <div data-testid="trakt-import-rules">
+              <p className="font-medium text-foreground">Import rules</p>
+              <ul className="mt-2 space-y-2">
+                <li>Manual ScreenLantern actions stay authoritative over imported Trakt state.</li>
+                <li>Sync only updates personal watched, watchlist, and taste inputs for the connected user.</li>
+                <li>Disconnecting Trakt stops future syncs but keeps already imported personal data unless you clear it from a title detail page or change it manually.</li>
+              </ul>
+            </div>
+          </div>
+        </details>
 
         <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm">
           <p className="font-medium text-foreground" data-testid="trakt-connection-status">
@@ -298,10 +347,10 @@ export function TraktIntegrationForm({
           </p>
           <p className="mt-1 text-muted-foreground">{summary.freshnessMessage}</p>
           <p className="mt-2 text-muted-foreground">
-            Last successful sync: {formatTimestamp(summary.lastSyncedAt)}
+            Last successful sync: {renderTimestamp(summary.lastSyncedAt)}
           </p>
           <p className="mt-1 text-muted-foreground">
-            Last attempt: {formatTimestamp(summary.lastSyncAttemptedAt)}
+            Last attempt: {renderTimestamp(summary.lastSyncAttemptedAt)}
           </p>
           <p className="mt-3 text-muted-foreground">
             Imports: {summary.importedScopes.join(", ")}.
@@ -433,29 +482,6 @@ export function TraktIntegrationForm({
           )}
         </div>
 
-        <div
-          className="rounded-2xl border border-border/70 bg-background/60 p-4 text-sm text-muted-foreground"
-          data-testid="trakt-recommendation-impact"
-        >
-          <p className="font-medium text-foreground">How imports affect recommendations</p>
-          <ul className="mt-2 space-y-2">
-            <li>Imported watched history helps ScreenLantern avoid resurfacing titles you have already seen.</li>
-            <li>Imported ratings shape your personal recommendation profile without turning those signals into group taste automatically.</li>
-            <li>Imported watchlist titles feed your personal reminders, resurfacing lanes, and Library decision surfaces.</li>
-          </ul>
-        </div>
-
-        <div
-          className="rounded-2xl border border-border/70 bg-background/60 p-4 text-sm text-muted-foreground"
-          data-testid="trakt-import-rules"
-        >
-          <p className="font-medium text-foreground">Import rules</p>
-          <ul className="mt-2 space-y-2">
-            <li>Manual ScreenLantern actions stay authoritative over imported Trakt state.</li>
-            <li>Sync only updates personal watched, watchlist, and taste inputs for the connected user.</li>
-            <li>Disconnecting Trakt stops future syncs but keeps already imported personal data unless you clear it from a title detail page or change it manually.</li>
-          </ul>
-        </div>
       </CardContent>
     </Card>
   );

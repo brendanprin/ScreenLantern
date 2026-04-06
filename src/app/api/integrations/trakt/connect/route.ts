@@ -9,8 +9,12 @@ import {
   TRAKT_OAUTH_STATE_COOKIE,
 } from "@/lib/services/trakt";
 
-function buildSettingsRedirect(request: NextRequest, type: "success" | "error", message: string) {
-  const url = new URL("/app/settings", request.url);
+function buildAppUrl(path: string) {
+  return new URL(path, env.nextAuthUrl);
+}
+
+function buildSettingsRedirect(type: "success" | "error", message: string) {
+  const url = buildAppUrl("/app/settings");
   url.searchParams.set("traktStatus", type);
   url.searchParams.set("traktMessage", message);
   return url;
@@ -34,12 +38,12 @@ export async function GET(request: NextRequest) {
   const user = await getApiCurrentUserContext();
 
   if (!user) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+    return NextResponse.redirect(buildAppUrl("/sign-in"));
   }
 
   if (!env.traktUseMockData && (!env.traktClientId || !env.traktClientSecret)) {
     return NextResponse.redirect(
-      buildSettingsRedirect(request, "error", "Trakt OAuth is not configured for this environment."),
+      buildSettingsRedirect("error", "Trakt OAuth is not configured for this environment."),
     );
   }
 
@@ -52,12 +56,11 @@ export async function GET(request: NextRequest) {
         code: `mock-${user.userId}`,
       });
       return NextResponse.redirect(
-        buildSettingsRedirect(request, "success", "Trakt connected. Run a sync to import your history."),
+        buildSettingsRedirect("success", "Trakt connected. Run a sync to import your history."),
       );
     } catch (error) {
       return NextResponse.redirect(
         buildSettingsRedirect(
-          request,
           "error",
           error instanceof Error ? error.message : "Unable to connect Trakt.",
         ),
@@ -96,15 +99,12 @@ export async function POST(request: NextRequest) {
         email: user.email,
         code: `mock-${user.userId}`,
       });
+      const redirectTo = toRelativeUrl(
+        buildSettingsRedirect("success", "Trakt connected. Run a sync to import your history."),
+      );
 
       return NextResponse.json({
-        redirectTo: toRelativeUrl(
-          buildSettingsRedirect(
-            request,
-            "success",
-            "Trakt connected. Run a sync to import your history.",
-          ),
-        ),
+        redirectTo,
       });
     } catch (error) {
       return NextResponse.json(

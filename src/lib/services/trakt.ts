@@ -257,6 +257,8 @@ function traktConfigured() {
 function buildTraktHeaders(accessToken?: string) {
   const headers = new Headers({
     "Content-Type": "application/json",
+    Accept: "application/json",
+    "User-Agent": "ScreenLantern/0.1",
     "trakt-api-version": "2",
   });
 
@@ -266,6 +268,20 @@ function buildTraktHeaders(accessToken?: string) {
 
   if (accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+
+  return headers;
+}
+
+function buildTraktOauthHeaders() {
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "User-Agent": "ScreenLantern/0.1",
+  });
+
+  if (env.traktClientId) {
+    headers.set("trakt-api-key", env.traktClientId);
   }
 
   return headers;
@@ -296,6 +312,85 @@ function buildRecentImportTimestamp(item: MockTraktTitleItem, kind: TraktRecentI
   }
 
   return item.ratedAt ?? null;
+}
+
+async function readTraktErrorDetail(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  try {
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as {
+        error?: string;
+        error_description?: string;
+      };
+
+      return [payload.error_description, payload.error].filter(Boolean).join(" ").trim();
+    }
+
+    const text = (await response.text()).trim();
+    if (/<\/?[a-z][\s\S]*>/i.test(text)) {
+      return text
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+function buildTraktExchangeFailureMessage(detail: string) {
+  const normalized = detail.trim();
+  const lower = normalized.toLowerCase();
+
+  if (!normalized) {
+    return "Unable to complete the Trakt authorization exchange.";
+  }
+
+  if (lower.includes("redirect uri")) {
+    return "Trakt rejected the callback URL. Check that TRAKT_REDIRECT_URI exactly matches the redirect URI saved in your Trakt app.";
+  }
+
+  if (lower.includes("cloudflare") || lower.includes("you have been blocked")) {
+    return "Trakt blocked the server-side token exchange from this environment. This is usually a Cloudflare or network reputation issue outside ScreenLantern. Try again from a different network or host, or use TRAKT_USE_MOCK_DATA=1 for local testing.";
+  }
+
+  if (lower.includes("invalid_client") || lower.includes("client secret")) {
+    return "Trakt rejected this app's credentials. Check TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET.";
+  }
+
+  if (lower.includes("invalid_grant") || lower.includes("authorization code")) {
+    return "Trakt rejected the one-time authorization code. Try connecting again. If it keeps failing, verify your Trakt client secret and redirect URI.";
+  }
+
+  return `Unable to complete the Trakt authorization exchange. ${normalized}`;
+}
+
+function buildTraktRefreshFailureMessage(detail: string) {
+  const normalized = detail.trim();
+  const lower = normalized.toLowerCase();
+
+  if (!normalized) {
+    return "Unable to refresh the Trakt access token.";
+  }
+
+  if (lower.includes("invalid_grant") || lower.includes("invalid_token")) {
+    return "Trakt refresh failed and this connection needs to be reconnected.";
+  }
+
+  if (lower.includes("cloudflare") || lower.includes("you have been blocked")) {
+    return "Trakt blocked the server-side token refresh from this environment. Reconnect later from a different network or host if this keeps happening.";
+  }
+
+  if (lower.includes("invalid_client") || lower.includes("client secret")) {
+    return "Trakt refresh failed because this app's credentials are not being accepted. Check TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET.";
+  }
+
+  return `Unable to refresh the Trakt access token. ${normalized}`;
 }
 
 function buildRecentImportItem(
@@ -686,9 +781,7 @@ async function exchangeTraktCode(code: string): Promise<TraktTokenResponse> {
 
   const response = await fetch(TRAKT_TOKEN_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: buildTraktOauthHeaders(),
     body: JSON.stringify({
       code,
       client_id: env.traktClientId,
@@ -699,7 +792,7 @@ async function exchangeTraktCode(code: string): Promise<TraktTokenResponse> {
   });
 
   if (!response.ok) {
-    throw new Error("Unable to complete the Trakt authorization exchange.");
+    throw new Error(buildTraktExchangeFailureMessage(await readTraktErrorDetail(response)));
   }
 
   return (await response.json()) as TraktTokenResponse;
@@ -723,9 +816,7 @@ async function refreshTraktToken(refreshToken: string): Promise<TraktTokenRespon
 
   const response = await fetch(TRAKT_TOKEN_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: buildTraktOauthHeaders(),
     body: JSON.stringify({
       refresh_token: refreshToken,
       client_id: env.traktClientId,
@@ -736,7 +827,7 @@ async function refreshTraktToken(refreshToken: string): Promise<TraktTokenRespon
   });
 
   if (!response.ok) {
-    throw new Error("Unable to refresh the Trakt access token.");
+    throw new Error(buildTraktRefreshFailureMessage(await readTraktErrorDetail(response)));
   }
 
   return (await response.json()) as TraktTokenResponse;
@@ -749,9 +840,7 @@ async function revokeTraktToken(accessToken: string) {
 
   await fetch(TRAKT_REVOKE_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: buildTraktOauthHeaders(),
     body: JSON.stringify({
       token: accessToken,
       client_id: env.traktClientId,
