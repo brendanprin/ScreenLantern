@@ -7,9 +7,13 @@
     "build": "next build",
     "start": "next start",
     "docker:dev:up": "docker compose -f docker-compose.dev.yml up --build",
+    "docker:dev:standup": "/bin/sh ./scripts/docker-standup.sh docker-compose.dev.yml http://127.0.0.1:3000",
     "docker:dev:down": "docker compose -f docker-compose.dev.yml down",
     "docker:prod:up": "docker compose -f docker-compose.prod.yml up --build",
+    "docker:prod:standup": "/bin/sh ./scripts/docker-standup.sh docker-compose.prod.yml http://127.0.0.1:3001",
     "docker:prod:down": "docker compose -f docker-compose.prod.yml down",
+    "netflix:sync": "tsx scripts/netflix-history-sync.ts sync",
+    "netflix:setup": "tsx scripts/netflix-history-sync.ts setup",
     "lint": "eslint .",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
@@ -42,7 +46,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@playwright/test": "^1.49.1",
+    "@playwright/test": "^1.59.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/node": "^22.9.0",

@@ -1584,6 +1584,28 @@ function summarizeCards(
   return `I would start with ${lead.title.title} for ${runtime.context.label}. ${lead.recommendationExplanations[0]?.summary ?? "It is the cleanest fit right now."} If you want backups, ${backupTitles} also fit the current ask.`;
 }
 
+function summarizeWhyPreviousCards(
+  runtime: AssistantRuntimeContext,
+  cards: AssistantMessageCard[],
+) {
+  if (cards.length === 0) {
+    return `I can explain the last recommendation once I have a grounded pick for ${runtime.context.label}.`;
+  }
+
+  if (cards.length === 1) {
+    const [card] = cards;
+    return `${card.title.title} came up for ${runtime.context.label} because ${card.recommendationExplanations[0]?.summary?.toLowerCase() ?? "it lines up with the current profile."} ${buildProviderNote(card)}`;
+  }
+
+  const lines = cards.slice(0, 3).map((card) => {
+    const why =
+      card.recommendationExplanations[0]?.summary ?? "it still fit the current ask.";
+    return `${card.title.title}: ${why}`;
+  });
+
+  return `I picked those for ${runtime.context.label} because each one matched a slightly different version of the same ask.\n${lines.join("\n")}`;
+}
+
 function findMostRecentAssistantCards(messages: AssistantConversationMessage[]) {
   const reversed = [...messages].reverse();
   return reversed.find((message) => message.role === "assistant" && message.cards.length > 0)
@@ -1613,21 +1635,41 @@ function isOffTopicMessage(message: string) {
   return !domainWords.some((word) => normalized.includes(word));
 }
 
-function parseAssistantIntentMessage(args: {
+export function parseAssistantIntentMessage(args: {
   message: string;
   previousCards: AssistantMessageCard[];
 }) {
   const normalized = args.message.toLowerCase();
+  const wantsWhyFollowupTarget =
+    normalized.includes("why those") ||
+    normalized.includes("why these") ||
+    normalized.includes("why them") ||
+    normalized.includes("why that") ||
+    normalized.includes("why this") ||
+    normalized.includes("those picks") ||
+    normalized.includes("these picks") ||
+    normalized.includes("those options") ||
+    normalized.includes("these options");
 
   return {
     normalized,
     wantsWhyThis:
       normalized.includes("why") &&
-      normalized.includes("this") &&
-      args.previousCards.length > 0,
+      args.previousCards.length > 0 &&
+      wantsWhyFollowupTarget,
+    wantsRecommendation:
+      normalized.includes("what should") ||
+      normalized.includes("what to watch") ||
+      normalized.includes("recommend") ||
+      normalized.includes("suggest") ||
+      normalized.includes("something to watch") ||
+      normalized.includes("what's good") ||
+      normalized.includes("whats good") ||
+      normalized.includes("what can i watch") ||
+      normalized.includes("pick something") ||
+      normalized.includes("find something"),
     wantsWatchlist:
       normalized.includes("watchlist") ||
-      normalized.includes("saved already") ||
       normalized.includes("saved already") ||
       normalized.includes("what we saved") ||
       normalized.includes("our saved") ||
@@ -1701,6 +1743,13 @@ async function tryRunStructuredAssistantTurn(args: {
   }
 
   if (parsed.wantsWhyThis) {
+    if (previousCards.length > 1) {
+      return {
+        text: summarizeWhyPreviousCards(args.runtime, previousCards),
+        cards: previousCards,
+      };
+    }
+
     const lead = previousCards[0];
     const fitPayload = await getFitToolPayload(args.runtime, {
       tmdbId: lead.title.tmdbId,
@@ -1765,6 +1814,25 @@ async function tryRunStructuredAssistantTurn(args: {
     };
   }
 
+  // Generic recommendation catch-all: explicit recommendation asks ("what should I watch",
+  // "recommend something", etc.) and any unrecognised message that has heuristic signals
+  // like a mood, media type, or runtime preference. This ensures the structured path always
+  // returns grounded results rather than falling through to an unconstrained LLM response.
+  if (parsed.wantsRecommendation || parsed.wantsFunny || parsed.wantsLighter ||
+      parsed.wantsOnlyMovies || parsed.wantsOnlyShows || parsed.wantsUnderTwoHours ||
+      parsed.wantsUnderNinety || parsed.wantsOurServices) {
+    const payload = await getRecommendationToolPayload(
+      args.runtime,
+      buildHeuristicToolArgs(parsed, previousCards),
+      toolExecutionContext,
+    );
+
+    return {
+      text: summarizeCards(args.runtime, payload.cards, "pick"),
+      cards: payload.cards,
+    };
+  }
+
   return {
     text: "",
     cards: [],
@@ -1810,7 +1878,10 @@ function buildOpenAiSystemPrompt(runtime: AssistantRuntimeContext, lastContext: 
     "You are the ScreenLantern recommendation assistant.",
     "Stay inside ScreenLantern's domain: what to watch, why it fits, saved titles, services, and practical next-step handoff.",
     "Do not answer unrelated general questions beyond briefly redirecting back to watch recommendations.",
-    "Always prefer tool calls over guessing. Never invent title availability, household data, provider behavior, or watched history.",
+    "Always use tools — never invent titles, availability, watched history, or provider data.",
+    "For ANY question about what to watch, ALWAYS call get_recommended_titles first. Do not write recommendation text before calling it.",
+    "If get_recommended_titles returns results, present those titles. Do not add generic suggestions or provider hints that are not in the tool results.",
+    "If a tool returns no results, say so directly and offer one concrete follow-up (e.g. 'Try removing the provider filter').",
     "Current active recommendation context is authoritative for this turn.",
     `Current context label: ${runtime.context.label}.`,
     `Current mode: ${runtime.context.mode}.`,
@@ -1819,10 +1890,9 @@ function buildOpenAiSystemPrompt(runtime: AssistantRuntimeContext, lastContext: 
     contextShifted
       ? "The active context changed since the earlier conversation. Treat the new context as authoritative and do not assume earlier solo/group scope still applies."
       : null,
-    "Keep responses concise and useful.",
-    "When recommending, give a short grounded why-this reason.",
+    "Keep responses concise. When presenting titles give a short grounded why-this reason.",
     "If providers are limited or only search-level handoff exists, say so simply.",
-    "If recommending for a group, do not claim perfect unanimity. Use compromise-oriented language when appropriate.",
+    "If recommending for a group, use compromise-oriented language when appropriate.",
   ]
     .filter(Boolean)
     .join("\n");

@@ -274,7 +274,7 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
                     </>
                   ) : (
                     <p className="mt-3 text-sm text-muted-foreground">
-                      Source-aware Trakt details are only shown for your own personal profile.
+                      Source-aware imported details are only shown for your own personal profile.
                     </p>
                   )}
                 </div>

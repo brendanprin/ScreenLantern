@@ -7,7 +7,7 @@ export type TraktSyncModeKey = "OFF" | "DAILY" | "ON_LOGIN_OR_APP_OPEN";
 export type TraktSyncTriggerKey = "MANUAL" | "AUTOMATIC";
 export type TraktFreshnessStateKey = "FRESH" | "STALE" | "NEVER_SYNCED";
 export type LibrarySourceFilter = "all" | "imported" | "manual";
-export type PersonalInteractionOrigin = "manual" | "trakt";
+export type PersonalInteractionOrigin = "manual" | "trakt" | "netflix";
 export type HouseholdActivityTypeKey =
   | "SHARED_SAVE_ADDED"
   | "SHARED_SAVE_REMOVED"

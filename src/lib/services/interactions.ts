@@ -20,6 +20,11 @@ const CONFLICTING_INTERACTIONS: Partial<Record<InteractionType, InteractionType[
   WATCHED: [InteractionType.WATCHLIST],
 };
 
+const IMPORTED_SOURCE_CONTEXTS = [
+  SourceContext.IMPORTED,
+  SourceContext.NETFLIX_IMPORTED,
+] as const;
+
 export async function setInteraction(args: {
   userId: string;
   title: TitleSummary | TitleDetails;
@@ -181,7 +186,9 @@ export async function clearImportedInteractionState(args: {
       interactionType: {
         in: interactionTypes,
       },
-      sourceContext: SourceContext.IMPORTED,
+      sourceContext: {
+        in: [...IMPORTED_SOURCE_CONTEXTS],
+      },
     },
   });
 

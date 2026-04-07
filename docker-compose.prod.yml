@@ -33,9 +33,29 @@ services:
       SEED_DEMO_DATA: "1"
       SEED_DEMO_MODE: "users-only"
       NODE_ENV: production
+      STREAMING_SYNC_URL: http://streaming-sync:7331
     ports:
       - "3001:3000"
     command: ["/bin/sh", "./scripts/start-prod.sh"]
+
+  streaming-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.netflix-sync
+    restart: unless-stopped
+    depends_on:
+      - app
+    env_file:
+      - .env
+    environment:
+      SCREENLANTERN_INTERNAL_URL: http://app:3000
+      NETFLIX_SYNC_USER_DATA_DIR: /data/profile
+      NETFLIX_SYNC_STORAGE_STATE_PATH: /data/storage-state.json
+      NETFLIX_SYNC_DOWNLOAD_DIR: /data/downloads
+      NETFLIX_SYNC_HEADLESS: "1"
+      STREAMING_SYNC_PORT: "7331"
+    volumes:
+      - ./.netflix-sync:/data
 
 volumes:
   screenlantern_prod_postgres_data:

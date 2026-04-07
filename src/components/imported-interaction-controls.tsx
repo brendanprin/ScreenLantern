@@ -65,10 +65,9 @@ export function ImportedInteractionControls({
   return (
     <div className="space-y-3 rounded-2xl border border-dashed border-border/80 bg-background/50 p-4">
       <div>
-        <p className="text-sm font-medium text-foreground">Imported from Trakt</p>
+        <p className="text-sm font-medium text-foreground">Imported state</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Remove only the imported state for this title. Manual ScreenLantern actions stay
-          intact.
+          Remove only the imported state for this title. Manual ScreenLantern actions stay intact.
         </p>
       </div>
 

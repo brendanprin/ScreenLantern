@@ -24,4 +24,5 @@ export const env = {
     process.env.TRAKT_USE_MOCK_DATA === "1",
   internalSyncSecret:
     process.env.INTERNAL_SYNC_SECRET ?? process.env.AUTH_SECRET,
+  streamingSyncUrl: process.env.STREAMING_SYNC_URL ?? null,
 };

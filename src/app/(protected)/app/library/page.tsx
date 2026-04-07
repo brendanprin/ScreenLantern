@@ -47,7 +47,7 @@ const SORT_LABELS: Record<LibrarySort, string> = {
 
 const SOURCE_LABELS: Record<LibrarySource, string> = {
   all: "All personal items",
-  imported: "Imported from Trakt",
+  imported: "Imported from integrations",
   manual: "Added in ScreenLantern",
 };
 

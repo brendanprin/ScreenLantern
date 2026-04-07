@@ -9,7 +9,15 @@ import type {
 export function getPersonalInteractionOrigin(
   sourceContext: SourceContext,
 ): PersonalInteractionOrigin {
-  return sourceContext === SourceContext.IMPORTED ? "trakt" : "manual";
+  if (sourceContext === SourceContext.IMPORTED) {
+    return "trakt";
+  }
+
+  if (sourceContext === SourceContext.NETFLIX_IMPORTED) {
+    return "netflix";
+  }
+
+  return "manual";
 }
 
 export function getInteractionOriginForType(
@@ -32,7 +40,7 @@ export function matchesLibrarySourceFilter(
   }
 
   if (sourceFilter === "imported") {
-    return origin === "trakt";
+    return origin === "trakt" || origin === "netflix";
   }
 
   return origin === "manual";
@@ -44,6 +52,10 @@ export function getLibrarySourceBadge(args: {
 }) {
   if (args.origin === "trakt") {
     return "Imported from Trakt";
+  }
+
+  if (args.origin === "netflix") {
+    return "Imported from Netflix";
   }
 
   if (args.origin === "manual" && args.sourceFilter === "manual") {
@@ -75,6 +87,26 @@ export function getPersonalInteractionOriginLabel(args: {
     }
 
     return "Imported from Trakt";
+  }
+
+  if (args.origin === "netflix") {
+    if (args.interactionType === InteractionType.WATCHED) {
+      return "Watched via Netflix history sync";
+    }
+
+    if (args.interactionType === InteractionType.WATCHLIST) {
+      return "Imported from Netflix";
+    }
+
+    if (args.interactionType === InteractionType.LIKE) {
+      return "Liked via Netflix import";
+    }
+
+    if (args.interactionType === InteractionType.DISLIKE) {
+      return "Disliked via Netflix import";
+    }
+
+    return "Imported from Netflix";
   }
 
   if (args.interactionType === InteractionType.WATCHED) {

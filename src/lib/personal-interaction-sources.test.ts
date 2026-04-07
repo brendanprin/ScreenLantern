@@ -12,6 +12,7 @@ import {
 describe("personal interaction sources", () => {
   it("maps imported and manual source contexts into personal origins", () => {
     expect(getPersonalInteractionOrigin(SourceContext.IMPORTED)).toBe("trakt");
+    expect(getPersonalInteractionOrigin(SourceContext.NETFLIX_IMPORTED)).toBe("netflix");
     expect(getPersonalInteractionOrigin(SourceContext.MANUAL)).toBe("manual");
     expect(getPersonalInteractionOrigin(SourceContext.SOLO)).toBe("manual");
   });
@@ -39,6 +40,7 @@ describe("personal interaction sources", () => {
 
   it("matches library source filters deterministically", () => {
     expect(matchesLibrarySourceFilter("trakt", "imported")).toBe(true);
+    expect(matchesLibrarySourceFilter("netflix", "imported")).toBe(true);
     expect(matchesLibrarySourceFilter("manual", "imported")).toBe(false);
     expect(matchesLibrarySourceFilter("manual", "manual")).toBe(true);
     expect(matchesLibrarySourceFilter(null, "all")).toBe(true);
@@ -51,6 +53,12 @@ describe("personal interaction sources", () => {
         sourceFilter: "all",
       }),
     ).toBe("Imported from Trakt");
+    expect(
+      getLibrarySourceBadge({
+        origin: "netflix",
+        sourceFilter: "all",
+      }),
+    ).toBe("Imported from Netflix");
     expect(
       getLibrarySourceBadge({
         origin: "manual",
@@ -72,6 +80,12 @@ describe("personal interaction sources", () => {
         origin: "trakt",
       }),
     ).toBe("Watched via Trakt sync");
+    expect(
+      getPersonalInteractionOriginLabel({
+        interactionType: InteractionType.WATCHED,
+        origin: "netflix",
+      }),
+    ).toBe("Watched via Netflix history sync");
     expect(
       getPersonalInteractionOriginLabel({
         interactionType: InteractionType.WATCHLIST,

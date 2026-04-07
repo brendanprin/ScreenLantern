@@ -20,6 +20,7 @@ enum SourceContext {
   GROUP
   MANUAL
   IMPORTED
+  NETFLIX_IMPORTED
 }
 
 enum RecommendationMode {
@@ -82,6 +83,16 @@ enum TraktSyncTrigger {
   AUTOMATIC
 }
 
+enum ImportSource {
+  NETFLIX
+}
+
+enum UnresolvedImportStatus {
+  PENDING
+  RESOLVED
+  DISMISSED
+}
+
 model Household {
   id                 String              @id @default(cuid())
   name               String
@@ -127,6 +138,7 @@ model User {
   householdActivities HouseholdActivity[] @relation("HouseholdActivityActor")
   traktConnection    UserTraktConnection?
   aiConversation     AiConversation?
+  unresolvedImports  UnresolvedImport[]
 }
 
 model HouseholdGroup {
@@ -196,6 +208,7 @@ model TitleCache {
   reminders          UserReminder[]
   sharedWatchlistEntries SharedWatchlistEntry[]
   activities         HouseholdActivity[]
+  unresolvedImports  UnresolvedImport[]
 
   @@unique([tmdbId, mediaType])
 }
@@ -395,4 +408,20 @@ model HouseholdActivity {
 
   @@index([householdId, createdAt])
   @@index([householdId, type, createdAt])
+}
+
+model UnresolvedImport {
+  id                   String                 @id @default(cuid())
+  userId               String
+  source               ImportSource
+  rawTitle             String
+  status               UnresolvedImportStatus @default(PENDING)
+  resolvedTitleCacheId String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resolvedTitle        TitleCache?            @relation(fields: [resolvedTitleCacheId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, source, rawTitle])
+  @@index([userId, source, status])
 }

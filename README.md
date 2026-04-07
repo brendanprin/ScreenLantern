@@ -2,7 +2,7 @@
 
 ScreenLantern is a household streaming discovery app that reduces decision fatigue. It helps users search across movies and TV, see where a title is available, save and rate titles, generate recommendations for a single person or a household combination, and ask a grounded recommendation assistant what to watch next.
 
-The current product is intentionally focused on discovery, library management, explainable recommendation logic, a narrow AI recommendation assistant, and practical handoff into a streaming service. Playback and direct per-streamer account linking remain deferred.
+The current product is intentionally focused on discovery, library management, explainable recommendation logic, a narrow AI recommendation assistant, and practical handoff into a streaming service. Playback remains deferred, but local Netflix history sync can now feed watched state into ScreenLantern without a manual CSV upload.
 
 ## Stack
 
@@ -25,6 +25,7 @@ The current product is intentionally focused on discovery, library management, e
 - Title detail pages with metadata and provider availability
 - Streaming-service handoff with honest `Open in ...`, `Search in ...`, or availability-only behavior based on the provider strategy ScreenLantern can actually support
 - Trakt account linking with manual sync plus configurable sync freshness for personal watched history, ratings, and watchlist import
+- Optional local Netflix viewing-history sync helper that can automate the official Netflix viewing-activity CSV export and import watched titles into ScreenLantern
 - Last-sync review in Settings with manual-versus-automatic labeling, recent import preview, and no-change/failure summaries
 - Personal library actions: watchlist, watched, like, dislike, hide
 - Solo recommendation mode
@@ -62,6 +63,12 @@ This is the fastest fully containerized path now:
 cp .env.example .env
 npm install
 npm run docker:dev:up
+```
+
+If you want a one-command local standup that also runs Netflix sync when setup has already been completed, use:
+
+```bash
+npm run docker:dev:standup
 ```
 
 What it does:
@@ -113,6 +120,7 @@ docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260404103000_trakt_connections/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406113000_trakt_sync_freshness/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406153000_trakt_sync_review/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406203000_netflix_import_source/migration.sql
 ```
 
 5. Generate the Prisma client:
@@ -174,6 +182,12 @@ For a one-command production-like local run:
 cp .env.example .env
 npm install
 npm run docker:prod:up
+```
+
+If you want a one-command production-like standup that also runs Netflix sync after the app is ready, use:
+
+```bash
+npm run docker:prod:standup
 ```
 
 What it does:
@@ -263,6 +277,13 @@ Production-like local caveat:
 - `TRAKT_REDIRECT_URI`: Trakt OAuth callback URL, defaults to `/api/integrations/trakt/callback`
 - `TRAKT_USE_MOCK_DATA`: set `1` to force deterministic local Trakt mock sync data
 - `INTERNAL_SYNC_SECRET`: optional secret for protected internal Trakt sync calls; falls back to `AUTH_SECRET` if omitted
+- `SCREENLANTERN_INTERNAL_URL`: base URL the local Netflix sync helper should call; use `http://app:3000` inside Docker helper containers
+- `NETFLIX_SYNC_USER_EMAIL`: ScreenLantern user email that should receive imported Netflix watched history
+- `NETFLIX_SYNC_PROFILE_NAME`: optional Netflix profile name to select before exporting viewing activity
+- `NETFLIX_SYNC_HEADLESS`: set `0` for one-time Netflix helper setup if you need an interactive browser profile
+- `NETFLIX_SYNC_USER_DATA_DIR`: persistent Chromium profile directory for the Netflix helper
+- `NETFLIX_SYNC_STORAGE_STATE_PATH`: cross-platform Playwright storage-state file saved during setup and reused by Docker sync runs
+- `NETFLIX_SYNC_DOWNLOAD_DIR`: temporary download directory for Netflix CSV exports
 
 Recommended local integration modes:
 
@@ -272,6 +293,7 @@ Recommended local integration modes:
 - Production-like local check with live catalog: `TMDB_USE_MOCK_DATA=0` plus a real `TMDB_API_KEY`
 - Trakt live OAuth: set real `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET`, and a matching `TRAKT_REDIRECT_URI`
 - If ScreenLantern is running inside Docker and Ollama is running on your host machine, use `AI_BASE_URL=http://host.docker.internal:11434/v1` instead of `localhost`
+- For the optional Dockerized Netflix sync helper, set `SCREENLANTERN_INTERNAL_URL=http://app:3000` so the helper can reach the app across the Compose network
 
 ## Release-Readiness Notes
 
@@ -284,6 +306,7 @@ Recommended local integration modes:
 - Search and Browse cards are intentionally trimmed for MVP hardening. Richer save, fit, and handoff decisions belong on Title Detail, Home, and Library.
 - Supported provider handoff actions remain intentionally narrow and honest. Unsupported providers still show availability without a fake handoff button.
 - Trakt import controls are intentionally title-level in MVP. Bulk import cleanup and richer conflict-resolution tooling remain post-MVP.
+- Imported-state badges and cleanup are now integration-aware. Library imported filters are generic, and title detail can distinguish Trakt imports from Netflix history imports.
 - Trakt Settings now keeps the last sync review compact and user-facing:
   - changed imports get a short summary plus a few recent imported titles
   - no-change syncs say so directly
@@ -354,9 +377,10 @@ Recommended local integration modes:
     - `1-4` becomes `DISLIKE`
     - `5-6` stays neutral
 - Imported data is stored with an `IMPORTED` source context so sync can be idempotent and manual ScreenLantern actions can stay authoritative.
+- Netflix watched-history sync stores `WATCHED` rows with a dedicated `NETFLIX_IMPORTED` source context so ScreenLantern can show Netflix-specific source labels without confusing them with Trakt.
 - ScreenLantern surfaces that source context in the personal places where it matters most:
   - Title Detail shows whether watched, watchlist, or taste state came from Trakt or from manual ScreenLantern actions
-  - Library collection views can be filtered to `Imported from Trakt` or `Added in ScreenLantern` for the signed-in user's own profile
+  - Library collection views can be filtered to imported or manual personal state for the signed-in user's own profile
 - Sync behavior stays deterministic and reuses one import path:
   - connect Trakt
   - run `Sync now` for the first import
@@ -381,6 +405,38 @@ Recommended local integration modes:
   - manual ScreenLantern actions on the same title stay intact
 - Disconnecting Trakt removes the OAuth connection and tokens, but keeps already imported personal history and watchlist data in ScreenLantern unless the user clears or changes it manually.
 - `TRAKT_USE_MOCK_DATA=1` enables deterministic mock Trakt data for local development and Playwright.
+
+## Netflix History Sync
+
+- ScreenLantern now includes an optional local-only Netflix history sync helper.
+- The helper is designed for local installs and works best as a separate Docker Compose profile or a direct `tsx` script run.
+- The helper keeps its Chromium profile, cross-platform login state, and temporary downloads in `./.netflix-sync`, which is ignored by git and shared with the optional Docker helper container.
+- Sync flow:
+  - the helper opens Netflix viewing activity using a persistent Chromium profile
+  - it downloads the official viewing-history CSV locally
+  - it converts the CSV into normalized watched-title rows
+  - it calls a protected internal ScreenLantern route using `INTERNAL_SYNC_SECRET`
+  - ScreenLantern matches rows to TMDb titles and imports personal `WATCHED` state
+  - the helper deletes the downloaded CSV after import
+- The helper does not need your Netflix password in ScreenLantern. It relies on the browser profile staying logged into Netflix.
+- First-time setup:
+  - run `npm run netflix:setup` on your host machine so Playwright can open a real browser window for Netflix login and any challenge steps
+  - setup saves Playwright storage state into `./.netflix-sync/storage-state.json`
+  - after that, the Docker helper reuses that saved login state for headless sync runs
+- Sync commands:
+  - direct host run: `npm run netflix:sync`
+  - Docker helper profile: `docker compose -f docker-compose.prod.yml --profile netflix-sync run --rm netflix-sync`
+- One-command standup options:
+  - dev: `npm run docker:dev:standup`
+  - prod-like: `npm run docker:prod:standup`
+  - these start ScreenLantern, wait for the app to be reachable, then run Netflix sync automatically when `./.netflix-sync/storage-state.json` and `NETFLIX_SYNC_USER_EMAIL` are both present
+  - if setup has not been completed yet, the app still starts and the standup script skips Netflix sync with a clear message
+- The Docker helper is best for repeat sync runs after local setup. It reuses the host `./.netflix-sync/storage-state.json`, which avoids relying on a macOS browser profile inside the Linux helper container.
+- The helper is intentionally narrow in v1:
+  - watched history only
+  - Netflix only
+  - title-level imports only
+  - no ratings, watchlist, or episode-progress sync yet
 
 ## AI Recommendation Assistant
 

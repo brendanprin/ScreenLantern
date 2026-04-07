@@ -6,6 +6,7 @@ import {
   hasNegativeAssistantInteraction,
   normalizeMediaTypeValue,
   normalizeMoodValue,
+  parseAssistantIntentMessage,
   normalizeRecommendationLikeArgs,
   normalizeSearchArgs,
 } from "@/lib/services/assistant";
@@ -153,5 +154,40 @@ describe("assistant tool argument normalization", () => {
         hasDisliked: false,
       }),
     ).toBe(false);
+  });
+
+  it("treats 'Why those?' as a follow-up explanation request for prior recommendation cards", () => {
+    expect(
+      parseAssistantIntentMessage({
+        message: "Why those?",
+        previousCards: [
+          {
+            id: "card-1",
+            source: "recommendation",
+            sourceLabel: "Recommended for you",
+            title: {
+              tmdbId: 11,
+              mediaType: "movie",
+              title: "The Devil Wears Prada",
+              overview: "",
+              posterPath: null,
+              backdropPath: null,
+              releaseDate: null,
+              genres: [],
+              providers: [],
+            },
+            handoff: null,
+            recommendationExplanations: [
+              {
+                category: "fallback",
+                summary: "It matches the current ask.",
+                detail: null,
+              },
+            ],
+            recommendationBadges: [],
+          },
+        ],
+      }).wantsWhyThis,
+    ).toBe(true);
   });
 });
