@@ -32,7 +32,7 @@ The current product is intentionally focused on discovery, library management, e
 - Combined household recommendation mode
 - Group watch-session modeling that stays distinct from solo watched history
 - Recommendation cards with concise explanation reasons plus a lightweight “Why this?” disclosure
-- AI recommendation assistant page with one active thread per signed-in user, active solo/group context labeling, structured result cards, and grounded follow-up refinement
+- AI recommendation assistant page with one active thread per signed-in user, active solo/group context labeling, a persisted current ask, structured result cards, and grounded follow-up refinement memory
 - Home resurfacing lanes for watchlist titles that are back on your radar or available now on your services
 - In-app reminder center for newly available and resurfaced watchlist titles in the current solo or group context
 - Reminder preferences for category toggles, solo/group tuning, resurfacing pace, and dismissed-reminder reappearance
@@ -121,6 +121,7 @@ docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406113000_trakt_sync_freshness/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406153000_trakt_sync_review/migration.sql
 docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260406203000_netflix_import_source/migration.sql
+docker compose exec -T db psql -U postgres -d screenlantern < prisma/migrations/20260407131500_assistant_thread_state_v2/migration.sql
 ```
 
 5. Generate the Prisma client:
@@ -165,6 +166,7 @@ Useful feature verification:
 npm run lint
 npm run test:unit
 npm run test:e2e
+npx playwright test tests/smoke.spec.ts --grep "assistant"
 ```
 
 TypeScript verification caveat:
@@ -234,12 +236,13 @@ npm run build
 5. Start the built app:
 
 ```bash
-npm run start
+PORT=3001 npm run start
 ```
 
 Production-like local caveat:
 
 - If you ran `npm run dev` after the last build, run `npm run build` again before `npm run start`. In local development, `.next` can contain dev artifacts after a later `next dev` session.
+- Keep `NEXTAUTH_URL` and any live Trakt redirect URI on the same port you use for manual production-like startup.
 - The production compose path avoids that `.next` caveat by building inside the image before startup.
 - The production-like Docker stack seeds demo users and household structure only. Personal watched, ratings, watchlist, and provider preferences should come from live TMDb plus Trakt sync, not from demo title interactions.
 
@@ -290,6 +293,7 @@ Recommended local integration modes:
 - Development and Playwright: `AI_USE_MOCK_DATA=1`, `TMDB_USE_MOCK_DATA=1`, and `TRAKT_USE_MOCK_DATA=1`
 - Local-first real assistant with OpenAI, live catalog, and real Trakt: `AI_PROVIDER=openai`, `AI_USE_MOCK_DATA=0`, `OPENAI_API_KEY` or `AI_API_KEY` set, `TMDB_USE_MOCK_DATA=0`, and `TRAKT_USE_MOCK_DATA=0`
 - Local-first real assistant with Ollama, live catalog, and real Trakt: `AI_PROVIDER=ollama`, `AI_USE_MOCK_DATA=0`, `AI_BASE_URL=http://localhost:11434/v1`, `AI_MODEL=llama3.2`, `TMDB_USE_MOCK_DATA=0`, and `TRAKT_USE_MOCK_DATA=0`
+- Playwright smoke runs use the repo's built-in `webServer` config, which starts `npm run dev -- --hostname localhost --port 3100` with `AI_USE_MOCK_DATA=1`, `TMDB_USE_MOCK_DATA=1`, and `TRAKT_USE_MOCK_DATA=1` so assistant smoke coverage stays deterministic.
 - Production-like local check with live catalog: `TMDB_USE_MOCK_DATA=0` plus a real `TMDB_API_KEY`
 - Trakt live OAuth: set real `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET`, and a matching `TRAKT_REDIRECT_URI`
 - If ScreenLantern is running inside Docker and Ollama is running on your host machine, use `AI_BASE_URL=http://host.docker.internal:11434/v1` instead of `localhost`
@@ -447,14 +451,36 @@ Recommended local integration modes:
   - deterministic mock mode for local testing
 - The assistant is intentionally narrow:
   - recommend what to watch
-  - refine by runtime, media type, saved-state, or service constraints
+  - refine by runtime, media type, saved-state, service, or freshness constraints
   - answer “why this?” for a title in the current context
   - help with solo or active-group decisions
+- The assistant keeps one lightweight persisted thread state per signed-in user:
+  - current source scope such as recommendations, watchlist, library, or shared saves
+  - current ask constraints such as movies, funny, under 2h, our services, or unwatched-only
+  - the last recommendation set for explanation follow-ups like `Why those?`
+  - rejected/recently declined title keys for follow-ups like `Not those` and `Give me 3 different ones`
+  - an optional reference title for similarity asks such as `something like Severance`
+- The assistant page shows a subtle `Current ask` strip that summarizes the active context plus the constraints ScreenLantern is still carrying forward.
+- `Start fresh` clears:
+  - the visible transcript
+  - the persisted current ask
+  - previous recommendation/rejection memory
 - The assistant stays grounded in:
   - the signed-in user’s current persisted recommendation context
   - live TMDb catalog and provider availability when `TMDB_USE_MOCK_DATA=0`
   - personal imported Trakt history when Trakt is connected
   - existing ScreenLantern recommendation, fit, library, watchlist, and provider-handoff services
+- Supported refinement follow-ups include:
+  - `Why those?`
+  - `Not those`
+  - `Give me 3 different ones`
+  - `Only movies`
+  - `Only shows`
+  - `Only on our services`
+  - `Something lighter`
+  - `Under 2 hours`
+  - `What about from our watchlist?`
+  - `What about the library?`
 - The assistant does not:
   - answer broad general-knowledge chat
   - claim provider entitlements beyond ScreenLantern’s known availability data
@@ -678,7 +704,6 @@ Recommended local integration modes:
 - [Product spec](/Users/brendanprin/workspace/personal/ScreenLantern/docs/product-spec.md)
 - [Architecture](/Users/brendanprin/workspace/personal/ScreenLantern/docs/architecture.md)
 - [MVP scope](/Users/brendanprin/workspace/personal/ScreenLantern/docs/mvp-scope.md)
-- [Roadmap](/Users/brendanprin/workspace/personal/ScreenLantern/docs/roadmap.md)
 - [Data model](/Users/brendanprin/workspace/personal/ScreenLantern/docs/data-model.md)
 - [Epics and tickets](/Users/brendanprin/workspace/personal/ScreenLantern/docs/planning/epics-and-tickets.md)
 

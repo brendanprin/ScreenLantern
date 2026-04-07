@@ -425,6 +425,42 @@ export type AssistantCandidateSource =
   | "shared_household"
   | "library"
   | "search";
+export type AssistantThreadSourceScope =
+  | "recommendation"
+  | "watchlist"
+  | "library"
+  | "shared_current"
+  | "shared_household";
+
+export interface AssistantThreadConstraints {
+  mediaType: MediaTypeKey | null;
+  mood: AssistantMoodKey | null;
+  runtimeMax: number | null;
+  onlyOnPreferredProviders: boolean;
+  excludeWatched: boolean;
+  practicalTonight: boolean;
+  provider: string | null;
+}
+
+export interface AssistantThreadLastRecommendation {
+  titleKeys: string[];
+  sourceLabel: string | null;
+}
+
+export interface AssistantThreadReferenceTitle {
+  tmdbId: number;
+  mediaType: MediaTypeKey;
+  title: string;
+}
+
+export interface AssistantThreadState {
+  sourceScope: AssistantThreadSourceScope;
+  constraints: AssistantThreadConstraints;
+  lastRecommendation: AssistantThreadLastRecommendation | null;
+  rejectedTitleKeys: string[];
+  shownTitleKeys: string[];
+  referenceTitle: AssistantThreadReferenceTitle | null;
+}
 
 export interface AssistantContextSnapshot {
   label: string;
@@ -461,4 +497,5 @@ export interface AssistantConversationSnapshot {
   providerLabel: string;
   context: AssistantContextSnapshot;
   messages: AssistantConversationMessage[];
+  threadState: AssistantThreadState | null;
 }

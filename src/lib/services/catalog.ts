@@ -31,6 +31,7 @@ const GENRE_CATALOG_TTL_MS = 1000 * 60 * 60 * 24;
 const PROVIDER_CATALOG_TTL_MS = 1000 * 60 * 60 * 24;
 const TITLE_PROVIDER_TTL_MS = 1000 * 60 * 60 * 12;
 const TITLE_DETAIL_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
+const TMDB_PROVIDER_CONCURRENCY = 5;
 
 const FALLBACK_GENRE_CATALOGS: Record<
   MediaTypeKey,
@@ -884,6 +885,15 @@ export async function getTitleDetails(
   }
 }
 
+async function runConcurrent<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < tasks.length; i += concurrency) {
+    const batch = await Promise.all(tasks.slice(i, i + concurrency).map((fn) => fn()));
+    results.push(...batch);
+  }
+  return results;
+}
+
 export async function hydrateProvidersForTitles(
   titles: TitleSummary[],
   options?: { refreshStale?: boolean },
@@ -900,46 +910,46 @@ export async function hydrateProvidersForTitles(
     TITLE_PROVIDER_TTL_MS,
   );
 
-  return Promise.all(
-    titles.map(async (title) => {
-      const existingProviders = title.providers.length > 0;
-      const cached = cachedProviders.get(toTmdbKey(title.tmdbId, title.mediaType));
-      if (cached) {
-        return {
-          ...title,
-          providers: cached.providers,
-          providerStatus: cached.providerStatus,
-        };
-      }
+  const tasks = titles.map((title) => async () => {
+    const existingProviders = title.providers.length > 0;
+    const cached = cachedProviders.get(toTmdbKey(title.tmdbId, title.mediaType));
+    if (cached) {
+      return {
+        ...title,
+        providers: cached.providers,
+        providerStatus: cached.providerStatus,
+      };
+    }
 
-      if (
-        !options?.refreshStale &&
-        existingProviders &&
-        title.providerStatus !== "unknown"
-      ) {
-        return title;
-      }
+    if (
+      !options?.refreshStale &&
+      existingProviders &&
+      title.providerStatus !== "unknown"
+    ) {
+      return title;
+    }
 
-      try {
-        const providerAvailability = await getTitleProviderAvailability(
-          title.tmdbId,
-          title.mediaType,
-        );
+    try {
+      const providerAvailability = await getTitleProviderAvailability(
+        title.tmdbId,
+        title.mediaType,
+      );
 
-        return {
-          ...title,
-          providers: providerAvailability.providers,
-          providerStatus: providerAvailability.providerStatus,
-        };
-      } catch {
-        return {
-          ...title,
-          providers: title.providers,
-          providerStatus: title.providerStatus ?? "unknown",
-        };
-      }
-    }),
-  );
+      return {
+        ...title,
+        providers: providerAvailability.providers,
+        providerStatus: providerAvailability.providerStatus,
+      };
+    } catch {
+      return {
+        ...title,
+        providers: title.providers,
+        providerStatus: title.providerStatus ?? "unknown",
+      };
+    }
+  });
+
+  return runConcurrent(tasks, TMDB_PROVIDER_CONCURRENCY);
 }
 
 export async function getRecommendationCandidatePool(args: {

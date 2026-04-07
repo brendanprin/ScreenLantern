@@ -181,30 +181,13 @@ function buildGroupTasteProfileFromProfiles(profiles: TasteProfile[]): TasteProf
   };
 }
 
-async function getGroupTasteProfileWithSignals(userIds: string[]) {
-  const memberProfiles = await Promise.all(
-    userIds.map((userId) => getUserTasteProfile(userId)),
-  );
+type InteractionForTaste = Awaited<ReturnType<typeof getInteractionsForTaste>>[number];
 
-  return {
-    profile: buildGroupTasteProfileFromProfiles(memberProfiles),
-    sharedGenres: buildGroupSharedGenres(memberProfiles),
-  };
-}
-
-export async function getUserTasteProfile(userId: string): Promise<TasteProfile> {
-  const interactions = await getInteractionsForTaste([userId]);
-  const user =
-    interactions[0]?.user ??
-    (await prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: {
-        id: true,
-        preferredProviders: true,
-        defaultMediaType: true,
-      },
-    }));
-
+function buildTasteProfileFromInteractions(
+  userId: string,
+  interactions: InteractionForTaste[],
+  user: { id: string; preferredProviders: string[]; defaultMediaType: string | null },
+): TasteProfile {
   const genreScores = new Map<string, number>();
   const dislikedTmdbKeys = new Set<string>();
   const hiddenTmdbKeys = new Set<string>();
@@ -282,6 +265,55 @@ export async function getUserTasteProfile(userId: string): Promise<TasteProfile>
     hiddenTmdbKeys: [...hiddenTmdbKeys],
     watchedTmdbKeys: [...watchedTmdbKeys],
   };
+}
+
+async function getGroupTasteProfileWithSignals(userIds: string[]) {
+  const allInteractions = await getInteractionsForTaste(userIds);
+
+  // Partition interactions by userId
+  const byUser = new Map<string, InteractionForTaste[]>();
+  for (const interaction of allInteractions) {
+    const bucket = byUser.get(interaction.userId) ?? [];
+    bucket.push(interaction);
+    byUser.set(interaction.userId, bucket);
+  }
+
+  // Users with no interactions won't appear in the map — fetch them in one query
+  const userIdsWithNoInteractions = userIds.filter((id) => !byUser.has(id));
+  const fallbackUsers =
+    userIdsWithNoInteractions.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: userIdsWithNoInteractions } },
+          select: { id: true, preferredProviders: true, defaultMediaType: true },
+        })
+      : [];
+  const fallbackUserMap = new Map(fallbackUsers.map((u) => [u.id, u]));
+
+  const memberProfiles = userIds.map((userId) => {
+    const interactions = byUser.get(userId) ?? [];
+    const user =
+      interactions[0]?.user ??
+      fallbackUserMap.get(userId) ??
+      ({ id: userId, preferredProviders: [], defaultMediaType: null } as const);
+    return buildTasteProfileFromInteractions(userId, interactions, user);
+  });
+
+  return {
+    profile: buildGroupTasteProfileFromProfiles(memberProfiles),
+    sharedGenres: buildGroupSharedGenres(memberProfiles),
+  };
+}
+
+export async function getUserTasteProfile(userId: string): Promise<TasteProfile> {
+  const interactions = await getInteractionsForTaste([userId]);
+  const user =
+    interactions[0]?.user ??
+    (await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, preferredProviders: true, defaultMediaType: true },
+    }));
+
+  return buildTasteProfileFromInteractions(userId, interactions, user);
 }
 
 export async function getGroupTasteProfile(userIds: string[]): Promise<TasteProfile> {

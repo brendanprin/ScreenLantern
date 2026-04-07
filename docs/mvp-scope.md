@@ -37,7 +37,7 @@
 - Group watch-session modeling separate from personal watched history
 - Cross-user fit summaries and household signal rows on title detail
 - Household activity/history feed for collaborative planning and governance events
-- AI recommendation assistant with one active thread per user, grounded result cards, and lightweight refinement
+- AI recommendation assistant with one active thread per user, grounded result cards, a persisted current ask, and lightweight refinement memory
 - Provider preference settings
 
 ### Quality
@@ -123,14 +123,16 @@ The MVP is considered complete when:
 - Settings shows a compact last-sync review so users can tell whether the last Trakt sync was manual or automatic, whether anything changed, and which recent titles were imported
 - MVP keeps only the latest sync review summary instead of a full per-sync history log
 - A signed-in user can open the assistant page and get grounded solo or group recommendations based on the current persisted context
-- Assistant follow-ups can refine by runtime, media type, saved-state, and “our services” constraints without turning ScreenLantern into a general chatbot
+- Assistant follow-ups can refine by runtime, media type, saved-state, “our services,” and unwatched constraints without turning ScreenLantern into a general chatbot
+- Assistant follow-ups such as `Why those?`, `Not those`, `Give me 3 different ones`, `Only movies`, and `What about from our watchlist?` operate on the persisted current ask instead of starting from scratch
+- `Start fresh` clears both the assistant transcript and the persisted current ask
 - The repository contains product, architecture, and roadmap documentation
 - The ticket breakdown is detailed enough to manage follow-on work
 
 ## Post-MVP Scope Next
 
 - Additional provider coverage where ScreenLantern can verify stable direct, search, or provider-home behavior
-- Richer assistant memory, multi-thread chat history, and broader AI intents beyond grounded recommendation help
+- Richer long-term assistant memory, multi-thread chat history, and broader AI intents beyond grounded recommendation help
 - Direct-provider account-linking exploration
 - Push or email reminder delivery on top of the existing in-app reminder model
 - More advanced Library cleanup tools, faceted exploration, and bulk actions

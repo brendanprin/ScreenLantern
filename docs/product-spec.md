@@ -265,7 +265,8 @@ These demo personas exist to make local development and recommendation tuning ea
 - The assistant is recommendation-focused, not a general-purpose chatbot
 - MVP thread model is intentionally simple:
   - one active conversation thread per signed-in user
-  - lightweight follow-up refinement inside that thread
+  - one lightweight persisted `current ask` state inside that thread
+  - refinement memory for the most recent recommendation set and declined titles
 - The assistant must stay grounded in:
   - the signed-in user’s current solo or group recommendation context
   - current household-safe saved-state and watch-state boundaries
@@ -274,10 +275,21 @@ These demo personas exist to make local development and recommendation tuning ea
   - personal imported Trakt history where connected
 - Supported v1 intents:
   - ask for a recommendation
-  - refine by runtime, media type, mood, or service constraints
+  - refine by runtime, media type, mood, service, or watched-state constraints
   - ask for something like another title
   - ask for something from personal watchlist, shared watchlist, or Library
   - ask why a title is a good fit for the current context
+- Supported refinement follow-ups include:
+  - `Why those?`
+  - `Not those`
+  - `Give me 3 different ones`
+  - `Only movies`
+  - `Only shows`
+  - `Only on our services`
+  - `Something lighter`
+  - `Under 2 hours`
+  - `What about from our watchlist?`
+  - `What about the library?`
 - Tool/service contract used by the assistant:
   - `get_active_context`
   - `search_titles`
@@ -285,12 +297,20 @@ These demo personas exist to make local development and recommendation tuning ea
   - `get_watchlist_candidates`
   - `get_library_candidates`
   - `get_fit_summary`
+- Persisted assistant thread state is intentionally narrow:
+  - active source scope: recommendations, watchlist, library, shared-current, or shared-household
+  - active constraints such as media type, mood, runtime cap, preferred-service restriction, and unwatched-only
+  - last recommendation title keys for explanation follow-ups
+  - rejected title keys for diversification follow-ups
+  - an optional reference title for similarity asks
 - Answer style stays calm and practical:
   - concise recommendation language
   - short why-this reasoning
   - honest provider/open-in/search availability wording
   - no fake unanimity for groups
 - Result rendering uses structured ScreenLantern title cards where it helps, with click-through to detail and provider handoff preserved
+- The assistant page also shows a small `Current ask` summary so users can see which constraints ScreenLantern is still carrying forward.
+- `Start fresh` clears the transcript plus the persisted current ask / refinement memory.
 - `Available now` reminders stay the highest-value default signal unless that category is turned off
 - Dismissed reminder reappearance is deterministic in MVP: when enabled, the same reminder can return after a fixed cooldown if it still fits the active context
 
@@ -419,6 +439,8 @@ These demo personas exist to make local development and recommendation tuning ea
 - A signed-in user can connect Trakt, manually sync watched history, ratings, and watchlist, and keep those imports personal to their own ScreenLantern profile
 - A signed-in user can choose a Trakt freshness mode and understand when imported history may be stale
 - Repeated Trakt syncs stay idempotent and do not repeatedly duplicate imported personal interactions
+- A signed-in user can keep an evolving current ask across short refinement follow-ups without turning ScreenLantern into a generic memory system
+- Explanation follow-ups such as `Why those?` reuse the previous recommendation set instead of generating a brand new one
 - A signed-in user can use the grounded recommendation assistant for solo or group decisions without crossing personal, shared, and household boundaries
 
 ## Post-MVP Next
@@ -426,7 +448,7 @@ These demo personas exist to make local development and recommendation tuning ea
 - Additional provider coverage where ScreenLantern can verify stable direct, search, or provider-home behavior
 - Direct provider account-linking exploration where providers officially support it
 - Scheduled Trakt refresh jobs and richer import controls
-- Richer assistant memory, multi-thread history, and more advanced agentic planning
+- Richer long-term assistant memory, multi-thread history, and more advanced agentic planning
 - Richer reminder delivery beyond the current in-app inbox
 - More advanced Library cleanup workflows and faceted exploration
 - Deeper collaborative filtering on Activity and shared planning surfaces

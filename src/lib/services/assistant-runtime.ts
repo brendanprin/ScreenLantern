@@ -47,7 +47,7 @@ export function resolveAssistantRuntimeConfig(
   const model =
     rawEnv.aiModel?.trim() ||
     rawEnv.openAiModel?.trim() ||
-    (provider === "ollama" ? "llama3.2" : "gpt-5.4-mini");
+    (provider === "ollama" ? "llama3.2" : "gpt-4o-mini");
   const isMockMode =
     Boolean(rawEnv.aiUseMockData) || (provider === "openai" && apiKey.length === 0);
   const runtimeMode: AssistantRuntimeMode = isMockMode ? "mock" : provider;

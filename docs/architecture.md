@@ -482,11 +482,27 @@ The assistant reuses a small service-oriented tool contract:
 The assistant itself is intentionally thin:
 
 - one user-owned persisted conversation row
+- one lightweight persisted `threadStateJson` object for the current ask
 - a server-side orchestration layer
 - a deterministic mock-answer path for local testing
 - a live model path that only uses grounded tool outputs
 
 The assistant does not become a new source of truth. Recommendation ranking, fit summaries, library state, watchlist state, provider availability, and Trakt-import ownership all remain in their existing domain services.
+
+Assistant turn handling is now state-first rather than transcript-first:
+
+- each signed-in user still has one active thread in MVP
+- `messagesJson` stores the visible transcript
+- `lastContextJson` stores the resolved solo/group context snapshot
+- `threadStateJson` stores only the current recommendation ask:
+  - active source scope
+  - active constraints such as media type, mood, runtime cap, and preferred-service restriction
+  - last recommendation title keys
+  - rejected title keys for “not those / different ones” follow-ups
+  - an optional reference title for “something like X”
+- short follow-ups update `threadStateJson` first, then ScreenLantern picks the grounded tool path
+- explanation follow-ups reuse the last recommendation set instead of fetching a new one
+- `Start fresh` deletes the conversation row so both transcript and current-ask memory are cleared together
 
 ## Security Posture
 
@@ -506,7 +522,7 @@ The assistant does not become a new source of truth. Recommendation ranking, fit
 - Cross-region availability comparison and regional fallback logic
 - Provider account linking, entitlement sync, and richer deep-link coverage across more streaming services
 - Rich explanation history views and per-title recommendation trace screens
-- Richer AI memory, multi-thread history, and broader agent tooling beyond the current recommendation assistant
+- Richer long-term AI memory, multi-thread history, and broader agent tooling beyond the current recommendation assistant
 - Push, email, or cron-triggered resurfacing notifications
 - Advanced faceted Library search, bulk cleanup tooling, and per-section notification preferences
 - Custom reminder cooldown windows, digest schedules, and per-group reminder policies

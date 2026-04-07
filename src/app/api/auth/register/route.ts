@@ -5,7 +5,40 @@ import { createHouseholdWithOwner, redeemHouseholdInviteForRegistration } from "
 import { prisma } from "@/lib/prisma";
 import { signUpSchema } from "@/lib/validations/auth";
 
+const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_ATTEMPTS = 5;
+const ipAttempts = new Map<string, { count: number; windowStart: number }>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = ipAttempts.get(ip);
+
+  if (!entry || now - entry.windowStart > WINDOW_MS) {
+    ipAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+
+  if (entry.count >= MAX_ATTEMPTS) {
+    return true;
+  }
+
+  entry.count += 1;
+  return false;
+}
+
 export async function POST(request: Request) {
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    request.headers.get("x-real-ip") ??
+    "unknown";
+
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { error: "Too many registration attempts. Please try again later." },
+      { status: 429 },
+    );
+  }
+
   const body = await request.json();
   const parsed = signUpSchema.safeParse(body);
 

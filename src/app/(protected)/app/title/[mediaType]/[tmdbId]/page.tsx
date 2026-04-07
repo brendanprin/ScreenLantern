@@ -64,8 +64,20 @@ function fitToneBadgeClass(tone: "strong" | "good" | "neutral" | "conflict") {
 
 export default async function TitleDetailPage({ params }: TitleDetailPageProps) {
   const { mediaType, tmdbId } = await params;
-  const user = await getCurrentUserContext();
-  const detailResult = await getTitleDetails(Number(tmdbId), mediaType);
+
+  const parsedTmdbId = Number(tmdbId);
+  if (mediaType !== "movie" && mediaType !== "tv") {
+    notFound();
+  }
+  if (!Number.isInteger(parsedTmdbId) || parsedTmdbId <= 0) {
+    notFound();
+  }
+
+  // Wave 1: fully independent
+  const [user, detailResult] = await Promise.all([
+    getCurrentUserContext(),
+    getTitleDetails(parsedTmdbId, mediaType),
+  ]);
 
   if (detailResult.notFound) {
     notFound();
@@ -88,17 +100,15 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
   }
 
   const details = detailResult.data;
-  const contextBootstrap = await getRecommendationContextBootstrap({
-    userId: user.userId,
-    householdId: user.householdId,
-  });
-  const actingUserId = contextBootstrap.context.isGroupMode
-    ? user.userId
-    : contextBootstrap.context.selectedUserIds[0] ?? user.userId;
 
-  const cachedTitle =
+  // Wave 2: contextBootstrap needs user; cachedTitle needs detailResult
+  const [contextBootstrap, cachedTitle] = await Promise.all([
+    getRecommendationContextBootstrap({
+      userId: user.userId,
+      householdId: user.householdId,
+    }),
     detailResult.source === "cache"
-      ? await prisma.titleCache.findUniqueOrThrow({
+      ? prisma.titleCache.findUniqueOrThrow({
           where: {
             tmdbId_mediaType: {
               tmdbId: details.tmdbId,
@@ -106,42 +116,51 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
             },
           },
         })
-      : await upsertTitleCache(details);
-
-  const interactionMap = await getInteractionMap(actingUserId, [
-    { tmdbId: details.tmdbId, mediaType: details.mediaType },
+      : upsertTitleCache(details),
   ]);
+
+  const actingUserId = contextBootstrap.context.isGroupMode
+    ? user.userId
+    : contextBootstrap.context.selectedUserIds[0] ?? user.userId;
+
+  // Wave 3: all depend on cachedTitle.id and actingUserId
+  const [interactionMap, activeGroupWatch, sharedWatchlistState, fitSummary, personalSourceState] =
+    await Promise.all([
+      getInteractionMap(actingUserId, [
+        { tmdbId: details.tmdbId, mediaType: details.mediaType },
+      ]),
+      getCurrentContextGroupWatchState({
+        userId: user.userId,
+        householdId: user.householdId,
+        titleCacheId: cachedTitle.id,
+      }),
+      getCurrentSharedWatchlistState({
+        userId: user.userId,
+        actorUserId: actingUserId,
+        householdId: user.householdId,
+        titleCacheId: cachedTitle.id,
+      }),
+      getTitleFitSummary({
+        userId: user.userId,
+        householdId: user.householdId,
+        title: details,
+        titleCacheId: cachedTitle.id,
+      }),
+      actingUserId === user.userId
+        ? getInteractionSourceStateMap({
+            userId: user.userId,
+            titleCacheIds: [cachedTitle.id],
+          }).then((m) => m.get(cachedTitle.id) ?? null)
+        : Promise.resolve(null),
+    ]);
+
   const activeTypes =
     interactionMap.get(`${details.mediaType}:${details.tmdbId}`) ?? [];
-  const activeGroupWatch = await getCurrentContextGroupWatchState({
-    userId: user.userId,
-    householdId: user.householdId,
-    titleCacheId: cachedTitle.id,
-  });
-  const sharedWatchlistState = await getCurrentSharedWatchlistState({
-    userId: user.userId,
-    actorUserId: actingUserId,
-    householdId: user.householdId,
-    titleCacheId: cachedTitle.id,
-  });
-  const fitSummary = await getTitleFitSummary({
-    userId: user.userId,
-    householdId: user.householdId,
-    title: details,
-    titleCacheId: cachedTitle.id,
-  });
   const handoff = buildTitleHandoff(
     details,
     user.preferredProviders,
     env.tmdbWatchRegion,
   );
-  const personalSourceState =
-    actingUserId === user.userId
-      ? (await getInteractionSourceStateMap({
-          userId: user.userId,
-          titleCacheIds: [cachedTitle.id],
-        })).get(cachedTitle.id) ?? null
-      : null;
   const personalStateRows = [
     {
       type: InteractionType.WATCHLIST,

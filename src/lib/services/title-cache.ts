@@ -178,5 +178,14 @@ export async function getFreshTitleDetailsFromCache(
     return null;
   }
 
-  return cached.metadataJson as unknown as TitleDetails;
+  const json = cached.metadataJson as Record<string, unknown>;
+  if (
+    typeof json.tmdbId !== "number" ||
+    typeof json.title !== "string" ||
+    (json.mediaType !== "movie" && json.mediaType !== "tv")
+  ) {
+    return null;
+  }
+
+  return json as unknown as TitleDetails;
 }

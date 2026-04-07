@@ -1,15 +1,49 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDefaultAssistantThreadState,
+  buildHeuristicToolArgs,
+  buildLastRecommendationFromCards,
+  buildToolArgsFromThreadState,
+  collectRejectedTitleKeys,
   collectRecentlySuggestedKeys,
   extractPseudoToolCallFromContent,
   hasNegativeAssistantInteraction,
+  isLikelyRefinementMessage,
   normalizeMediaTypeValue,
   normalizeMoodValue,
-  parseAssistantIntentMessage,
   normalizeRecommendationLikeArgs,
   normalizeSearchArgs,
+  parseAssistantIntentMessage,
 } from "@/lib/services/assistant";
+
+function createAssistantCard(title: string, tmdbId: number) {
+  return {
+    id: `card-${tmdbId}`,
+    source: "recommendation" as const,
+    sourceLabel: "Recommended for you",
+    title: {
+      tmdbId,
+      mediaType: "movie" as const,
+      title,
+      overview: "",
+      posterPath: null,
+      backdropPath: null,
+      releaseDate: null,
+      genres: [],
+      providers: [],
+    },
+    handoff: null,
+    recommendationExplanations: [
+      {
+        category: "fallback" as const,
+        summary: "It matches the current ask.",
+        detail: null,
+      },
+    ],
+    recommendationBadges: [],
+  };
+}
 
 describe("assistant tool argument normalization", () => {
   it("coerces fuzzy media type strings into known movie or tv values", () => {
@@ -160,34 +194,145 @@ describe("assistant tool argument normalization", () => {
     expect(
       parseAssistantIntentMessage({
         message: "Why those?",
-        previousCards: [
-          {
-            id: "card-1",
-            source: "recommendation",
-            sourceLabel: "Recommended for you",
-            title: {
-              tmdbId: 11,
-              mediaType: "movie",
-              title: "The Devil Wears Prada",
-              overview: "",
-              posterPath: null,
-              backdropPath: null,
-              releaseDate: null,
-              genres: [],
-              providers: [],
-            },
-            handoff: null,
-            recommendationExplanations: [
-              {
-                category: "fallback",
-                summary: "It matches the current ask.",
-                detail: null,
-              },
-            ],
-            recommendationBadges: [],
-          },
-        ],
+        previousCards: [createAssistantCard("The Devil Wears Prada", 11)],
       }).wantsWhyThis,
     ).toBe(true);
+  });
+
+  it("treats short constraint changes as refinements when there is prior thread state", () => {
+    const parsed = parseAssistantIntentMessage({
+      message: "Only movies",
+      previousCards: [createAssistantCard("Dune", 11)],
+    });
+
+    expect(
+      isLikelyRefinementMessage({
+        message: "Only movies",
+        hasPriorState: true,
+        parsed,
+      }),
+    ).toBe(true);
+  });
+
+  it("stores the last shown recommendation set for future why/different follow-ups", () => {
+    expect(
+      buildLastRecommendationFromCards([
+        createAssistantCard("Dune", 11),
+        createAssistantCard("Arrival", 12),
+      ]),
+    ).toEqual({
+      titleKeys: ["movie:11", "movie:12"],
+      sourceLabel: "Recommended for you",
+    });
+  });
+
+  it("adds the prior recommendation set to rejected memory for different follow-ups", () => {
+    const state = buildDefaultAssistantThreadState();
+    state.lastRecommendation = {
+      titleKeys: ["movie:11", "movie:12"],
+      sourceLabel: "Recommended for you",
+    };
+
+    expect(collectRejectedTitleKeys(state, [])).toEqual(["movie:11", "movie:12"]);
+  });
+
+  it("builds tool args from persisted thread state instead of starting over", () => {
+    const state = buildDefaultAssistantThreadState();
+    state.constraints.mediaType = "movie";
+    state.constraints.mood = "funny";
+    state.constraints.runtimeMax = 120;
+    state.constraints.onlyOnPreferredProviders = true;
+    state.constraints.excludeWatched = true;
+    state.sourceScope = "watchlist";
+    state.lastRecommendation = {
+      titleKeys: ["movie:11", "movie:12", "movie:13"],
+      sourceLabel: "Saved already",
+    };
+
+    const parsed = parseAssistantIntentMessage({
+      message: "Give me 3 different ones",
+      previousCards: [createAssistantCard("Dune", 11)],
+    });
+
+    expect(buildToolArgsFromThreadState(state, parsed)).toEqual({
+      limit: 3,
+      mediaType: "movie",
+      runtimeMax: 120,
+      onlyOnPreferredProviders: true,
+      provider: null,
+      mood: "funny",
+      referenceTmdbId: null,
+      referenceMediaType: null,
+      excludeWatched: true,
+      practicalTonight: false,
+    });
+  });
+
+  it("treats watchlist scope-switch follow-ups as refinements", () => {
+    const parsed = parseAssistantIntentMessage({
+      message: "What about from our watchlist?",
+      previousCards: [createAssistantCard("Dune", 11)],
+    });
+
+    expect(parsed.wantsWatchlist).toBe(true);
+    expect(
+      isLikelyRefinementMessage({
+        message: "What about from our watchlist?",
+        hasPriorState: true,
+        parsed,
+      }),
+    ).toBe(true);
+  });
+
+  it("treats 'Not those' as a rejection follow-up for the current recommendation set", () => {
+    const parsed = parseAssistantIntentMessage({
+      message: "Not those",
+      previousCards: [createAssistantCard("Dune", 11)],
+    });
+
+    expect(parsed.wantsRejectPrevious).toBe(true);
+    expect(
+      isLikelyRefinementMessage({
+        message: "Not those",
+        hasPriorState: true,
+        parsed,
+      }),
+    ).toBe(true);
+  });
+
+  it("treats the full surfaced current-ask set as rejected when asking for different options", () => {
+    const state = buildDefaultAssistantThreadState();
+    state.lastRecommendation = {
+      titleKeys: ["movie:21", "movie:22", "movie:23"],
+      sourceLabel: "Recommended for you",
+    };
+    state.shownTitleKeys = ["movie:11", "movie:12", "movie:13", "movie:21", "movie:22", "movie:23"];
+
+    expect(collectRejectedTitleKeys(state, [])).toEqual([
+      "movie:11",
+      "movie:12",
+      "movie:13",
+      "movie:21",
+      "movie:22",
+      "movie:23",
+    ]);
+  });
+
+  it("recognizes broad tonight asks as a practical recommendation constraint", () => {
+    const parsed = parseAssistantIntentMessage({
+      message: "What should I watch tonight?",
+      previousCards: [],
+    });
+
+    expect(parsed.wantsTonight).toBe(true);
+    expect(buildHeuristicToolArgs(parsed, [])).toEqual({
+      limit: 3,
+      mediaType: null,
+      runtimeMax: null,
+      onlyOnPreferredProviders: false,
+      mood: null,
+      excludeWatched: false,
+      practicalTonight: true,
+    });
   });
 });

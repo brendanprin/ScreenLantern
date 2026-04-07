@@ -90,8 +90,15 @@ In the current MVP implementation, membership is represented directly on the `Us
 
 - One persisted assistant thread per signed-in user in MVP
 - Stores a lightweight transcript plus the last active recommendation context snapshot
+- Also stores a narrow `threadStateJson` object for the current ask:
+  - active source scope such as recommendations, watchlist, library, or shared saves
+  - active constraints such as media type, mood, runtime cap, preferred-service restriction, and unwatched-only
+  - last recommendation title keys for explanation follow-ups
+  - rejected title keys for diversification follow-ups
+  - an optional reference title for similarity asks
 - Keeps assistant memory user-owned and household-scoped without creating a full multi-thread chat system
 - Exists to support refinement follow-ups such as “something lighter,” “only movies,” or “what about something we saved already?”
+- `Start fresh` clears the row so transcript and current-ask memory reset together
 - Does not store raw provider entitlements, raw recommendation score traces, or cross-household data
 
 ### SharedWatchlistEntry

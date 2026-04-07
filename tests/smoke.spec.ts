@@ -237,14 +237,26 @@ test("assistant supports solo recommendation refinement and why-this follow-up",
   const latestAnswer = page.getByTestId("assistant-message-assistant").last();
   await expect(latestAnswer).toBeVisible();
   await expect(latestAnswer.getByTestId("assistant-card")).toHaveCount(3);
+  await expect(page.getByTestId("assistant-current-ask")).toContainText("For Brendan");
+  await expect(page.getByTestId("assistant-current-ask")).toContainText("Recommendations");
+  await expect(page.getByTestId("assistant-current-ask")).toContainText("Funny");
+  await expect(page.getByTestId("assistant-current-ask")).toContainText("Under 2h");
 
-  await askAssistant(page, "Why this?");
+  const leadTitle = (await latestAnswer.getByTestId("assistant-card").first().textContent()) ?? "";
+
+  await askAssistant(page, "Why those?");
   const whyAnswer = page.getByTestId("assistant-message-assistant").last();
-  await expect(whyAnswer).toContainText(/Brendan|fit/i);
+  await expect(whyAnswer).toContainText(leadTitle.trim().split("\n")[0] ?? "");
+  await expect(whyAnswer.getByTestId("assistant-card")).toHaveCount(3);
 
   await askAssistant(page, "Give me 3 options instead.");
   const refinedAnswer = page.getByTestId("assistant-message-assistant").last();
-  await expect(refinedAnswer.getByTestId("assistant-card")).toHaveCount(3);
+  await expect(refinedAnswer.getByTestId("assistant-card").first()).toBeVisible();
+  await expect(refinedAnswer).not.toContainText(leadTitle.trim().split("\n")[0] ?? "");
+
+  await page.getByRole("button", { name: "Start fresh" }).click();
+  await expect(page.getByTestId("assistant-thread")).toHaveCount(0);
+  await expect(page.getByTestId("assistant-current-ask")).toHaveCount(0);
 });
 
 test("assistant respects group context, shared watchlist state, and provider-aware handoff", async ({
@@ -265,11 +277,16 @@ test("assistant respects group context, shared watchlist state, and provider-awa
   await askAssistant(page, "What should Brendan + Palmer watch tonight on our services?");
   const groupAnswer = page.getByTestId("assistant-message-assistant").last();
   await expect(groupAnswer).toContainText("Brendan + Palmer");
+  await expect(page.getByTestId("assistant-current-ask")).toContainText(
+    "For Brendan + Palmer",
+  );
+  await expect(page.getByTestId("assistant-current-ask")).toContainText("Our services");
 
   await askAssistant(page, "What about something we saved already?");
   const sharedWatchlistAnswer = page.getByTestId("assistant-message-assistant").last();
   await expect(sharedWatchlistAnswer).toContainText(/Saved by|Saved for/);
   await expect(sharedWatchlistAnswer.getByTestId("assistant-card").first()).toBeVisible();
+  await expect(page.getByTestId("assistant-current-ask")).toContainText("Shared watchlist");
   await expect(
     sharedWatchlistAnswer
       .getByRole("link", { name: /Search in Max|Search in Netflix/ })

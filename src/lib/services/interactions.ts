@@ -222,11 +222,15 @@ export async function getLibraryItems(
   }));
 }
 
+const TASTE_INTERACTIONS_PER_USER = 500;
+
 export async function getInteractionsForTaste(userIds: string[]) {
   return prisma.userTitleInteraction.findMany({
     where: {
       userId: { in: userIds },
     },
+    orderBy: { updatedAt: "desc" },
+    take: TASTE_INTERACTIONS_PER_USER * userIds.length,
     include: {
       title: true,
       user: {

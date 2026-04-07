@@ -37,6 +37,84 @@ function renderMessageText(text: string) {
   ));
 }
 
+function buildCurrentAskLabels(
+  snapshot: AssistantConversationSnapshot,
+  contextLabel: string,
+) {
+  if (!snapshot.threadState) {
+    return [];
+  }
+
+  const labels = [`For ${contextLabel}`];
+
+  const scopeLabel =
+    snapshot.threadState.sourceScope === "watchlist"
+      ? "Watchlist"
+      : snapshot.threadState.sourceScope === "library"
+        ? "Library"
+        : snapshot.threadState.sourceScope === "shared_current"
+          ? "Shared watchlist"
+          : snapshot.threadState.sourceScope === "shared_household"
+            ? "Household saves"
+            : "Recommendations";
+
+  labels.push(scopeLabel);
+
+  if (snapshot.threadState.constraints.mediaType === "movie") {
+    labels.push("Movies");
+  } else if (snapshot.threadState.constraints.mediaType === "tv") {
+    labels.push("Shows");
+  }
+
+  if (snapshot.threadState.constraints.mood) {
+    labels.push(
+      snapshot.threadState.constraints.mood === "funny"
+        ? "Funny"
+        : snapshot.threadState.constraints.mood === "lighter"
+          ? "Lighter"
+          : snapshot.threadState.constraints.mood === "tense"
+            ? "Tense"
+            : snapshot.threadState.constraints.mood === "romantic"
+              ? "Romantic"
+              : snapshot.threadState.constraints.mood === "scary"
+                ? "Scary"
+                : "Thoughtful",
+    );
+  }
+
+  if (typeof snapshot.threadState.constraints.runtimeMax === "number") {
+    labels.push(
+      snapshot.threadState.constraints.runtimeMax === 120
+        ? "Under 2h"
+        : snapshot.threadState.constraints.runtimeMax === 90
+          ? "Under 90m"
+          : `Under ${snapshot.threadState.constraints.runtimeMax}m`,
+    );
+  }
+
+  if (snapshot.threadState.constraints.onlyOnPreferredProviders) {
+    labels.push("Our services");
+  }
+
+  if (snapshot.threadState.constraints.excludeWatched) {
+    labels.push("Unwatched only");
+  }
+
+  if (snapshot.threadState.constraints.practicalTonight) {
+    labels.push("Tonight");
+  }
+
+  if (snapshot.threadState.constraints.provider) {
+    labels.push(snapshot.threadState.constraints.provider);
+  }
+
+  if (snapshot.threadState.referenceTitle) {
+    labels.push(`Like ${snapshot.threadState.referenceTitle.title}`);
+  }
+
+  return labels;
+}
+
 export function AssistantPageClient({ initialSnapshot }: AssistantPageClientProps) {
   const { activeNames, isGroupMode } = useActiveContext();
   const [snapshot, setSnapshot] = useState(initialSnapshot);
@@ -50,6 +128,10 @@ export function AssistantPageClient({ initialSnapshot }: AssistantPageClientProp
 
     return activeNames[0] ?? snapshot.context.label;
   }, [activeNames, isGroupMode, snapshot.context.label]);
+  const currentAskLabels = useMemo(
+    () => buildCurrentAskLabels(snapshot, contextLabel),
+    [contextLabel, snapshot],
+  );
 
   async function sendMessage(message: string) {
     const trimmed = message.trim();
@@ -145,6 +227,23 @@ export function AssistantPageClient({ initialSnapshot }: AssistantPageClientProp
                 group context, saved titles, provider access, and personal imported
                 Trakt state.
               </p>
+              {snapshot.messages.length > 0 && currentAskLabels.length > 0 ? (
+                <div className="mt-4 space-y-2" data-testid="assistant-current-ask">
+                  <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                    Current ask
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {currentAskLabels.map((label) => (
+                      <span
+                        key={label}
+                        className="rounded-full border border-border/80 bg-white/80 px-3 py-1 text-xs font-medium text-muted-foreground"
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
             {snapshot.isMockMode ? (
               <p className="text-sm text-muted-foreground">

@@ -3,11 +3,15 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 import { env } from "@/lib/env";
 
 function getEncryptionKey() {
-  if (!env.authSecret) {
-    throw new Error("AUTH_SECRET is required to encrypt linked-account tokens.");
+  const secret = env.traktEncryptionKey ?? env.authSecret;
+
+  if (!secret) {
+    throw new Error(
+      "TRAKT_ENCRYPTION_KEY (or AUTH_SECRET as fallback) is required to encrypt linked-account tokens.",
+    );
   }
 
-  return createHash("sha256").update(env.authSecret).digest();
+  return createHash("sha256").update(secret).digest();
 }
 
 export function encryptSecret(value: string) {

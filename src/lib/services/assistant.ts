@@ -1,4 +1,4 @@
-import { InteractionType } from "@prisma/client";
+import { InteractionType, Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { deriveCompactFitLabel } from "@/lib/fit-labels";
@@ -37,6 +37,10 @@ import type {
   AssistantConversationSnapshot,
   AssistantMessageCard,
   AssistantMoodKey,
+  AssistantThreadConstraints,
+  AssistantThreadReferenceTitle,
+  AssistantThreadSourceScope,
+  AssistantThreadState,
   MediaTypeKey,
   RecommendationExplanation,
   RecommendationModeKey,
@@ -124,6 +128,44 @@ const assistantContextSchema = z.object({
   savedGroupId: z.string().nullable(),
 });
 
+const assistantThreadConstraintsSchema = z.object({
+  mediaType: z.enum(["movie", "tv"]).nullable(),
+  mood: z
+    .enum(["funny", "lighter", "tense", "romantic", "scary", "thoughtful"])
+    .nullable(),
+  runtimeMax: z.number().int().positive().max(400).nullable(),
+  onlyOnPreferredProviders: z.boolean(),
+  excludeWatched: z.boolean(),
+  practicalTonight: z.boolean(),
+  provider: z.string().trim().min(1).max(80).nullable(),
+});
+
+const assistantThreadLastRecommendationSchema = z.object({
+  titleKeys: z.array(z.string()),
+  sourceLabel: z.string().nullable(),
+});
+
+const assistantThreadReferenceTitleSchema = z.object({
+  tmdbId: z.number().int().positive(),
+  mediaType: z.enum(["movie", "tv"]),
+  title: z.string().trim().min(1).max(160),
+});
+
+const assistantThreadStateSchema = z.object({
+  sourceScope: z.enum([
+    "recommendation",
+    "watchlist",
+    "library",
+    "shared_current",
+    "shared_household",
+  ]),
+  constraints: assistantThreadConstraintsSchema,
+  lastRecommendation: assistantThreadLastRecommendationSchema.nullable(),
+  rejectedTitleKeys: z.array(z.string()),
+  shownTitleKeys: z.array(z.string()),
+  referenceTitle: assistantThreadReferenceTitleSchema.nullable(),
+});
+
 type StoredAssistantMessage = z.infer<typeof assistantMessageSchema>;
 interface AssistantViewer {
   userId: string;
@@ -152,10 +194,12 @@ interface AssistantToolArgs {
   referenceTmdbId?: number | null;
   referenceMediaType?: MediaTypeKey | null;
   excludeWatched?: boolean | null;
+  practicalTonight?: boolean | null;
 }
 
 interface AssistantToolExecutionContext {
   recentlySuggestedKeys: Set<string>;
+  blockedTitleKeys: Set<string>;
 }
 
 interface AssistantNegativeInteractionFlags {
@@ -228,6 +272,7 @@ type AssistantToolPayload =
 interface AssistantTurnResult {
   text: string;
   cards: AssistantMessageCard[];
+  threadState: AssistantThreadState | null;
 }
 
 interface AssistantOpenAiMessage {
@@ -463,6 +508,10 @@ export function normalizeRecommendationLikeArgs(rawArgs: unknown) {
     normalized.excludeWatched = normalizeBooleanValue(normalized.excludeWatched) ?? null;
   }
 
+  if ("practicalTonight" in normalized) {
+    normalized.practicalTonight = normalizeBooleanValue(normalized.practicalTonight) ?? null;
+  }
+
   return normalized;
 }
 
@@ -607,6 +656,7 @@ const recommendationArgsSchema = z.object({
   referenceTmdbId: z.number().int().positive().nullish(),
   referenceMediaType: z.enum(["movie", "tv"]).nullish(),
   excludeWatched: z.boolean().nullish(),
+  practicalTonight: z.boolean().nullish(),
 });
 
 const searchArgsSchema = z.object({
@@ -669,6 +719,89 @@ function parseStoredMessages(input: unknown): AssistantConversationMessage[] {
 function parseStoredContext(input: unknown): AssistantContextSnapshot | null {
   const parsed = assistantContextSchema.safeParse(input);
   return parsed.success ? parsed.data : null;
+}
+
+function parseStoredThreadState(input: unknown): AssistantThreadState | null {
+  const parsed = assistantThreadStateSchema.safeParse(input);
+  return parsed.success ? parsed.data : null;
+}
+
+export function buildDefaultAssistantThreadState(): AssistantThreadState {
+  return {
+    sourceScope: "recommendation",
+    constraints: {
+      mediaType: null,
+      mood: null,
+      runtimeMax: null,
+      onlyOnPreferredProviders: false,
+      excludeWatched: false,
+      practicalTonight: false,
+      provider: null,
+    },
+    lastRecommendation: null,
+    rejectedTitleKeys: [],
+    shownTitleKeys: [],
+    referenceTitle: null,
+  };
+}
+
+function cloneAssistantThreadState(
+  state: AssistantThreadState | null | undefined,
+): AssistantThreadState {
+  const source = state ?? buildDefaultAssistantThreadState();
+
+  return {
+    sourceScope: source.sourceScope,
+    constraints: {
+      mediaType: source.constraints.mediaType,
+      mood: source.constraints.mood,
+      runtimeMax: source.constraints.runtimeMax,
+      onlyOnPreferredProviders: source.constraints.onlyOnPreferredProviders,
+      excludeWatched: source.constraints.excludeWatched,
+      practicalTonight: source.constraints.practicalTonight,
+      provider: source.constraints.provider,
+    },
+    lastRecommendation: source.lastRecommendation
+      ? {
+          titleKeys: [...source.lastRecommendation.titleKeys],
+          sourceLabel: source.lastRecommendation.sourceLabel,
+        }
+      : null,
+    rejectedTitleKeys: [...source.rejectedTitleKeys],
+    shownTitleKeys: [...source.shownTitleKeys],
+    referenceTitle: source.referenceTitle
+      ? {
+          tmdbId: source.referenceTitle.tmdbId,
+          mediaType: source.referenceTitle.mediaType,
+          title: source.referenceTitle.title,
+        }
+      : null,
+  };
+}
+
+function hasMeaningfulThreadState(state: AssistantThreadState | null | undefined) {
+  if (!state) {
+    return false;
+  }
+
+  return (
+    state.sourceScope !== "recommendation" ||
+    state.constraints.mediaType !== null ||
+    state.constraints.mood !== null ||
+    state.constraints.runtimeMax !== null ||
+    state.constraints.onlyOnPreferredProviders ||
+    state.constraints.excludeWatched ||
+    state.constraints.practicalTonight ||
+    state.constraints.provider !== null ||
+    state.referenceTitle !== null ||
+    state.lastRecommendation !== null ||
+    state.rejectedTitleKeys.length > 0 ||
+    state.shownTitleKeys.length > 0
+  );
+}
+
+function dedupeTitleKeys(keys: string[], max = 24) {
+  return [...new Set(keys)].slice(-max);
 }
 
 function buildContextLabel(activeNames: string[], isGroupMode: boolean, viewerName: string) {
@@ -745,6 +878,7 @@ async function persistConversation(args: {
   viewer: AssistantViewer;
   messages: AssistantConversationMessage[];
   context: AssistantContextSnapshot;
+  threadState: AssistantThreadState | null;
 }) {
   await prisma.aiConversation.upsert({
     where: {
@@ -754,12 +888,18 @@ async function persistConversation(args: {
       householdId: args.viewer.householdId,
       messagesJson: args.messages as unknown as object,
       lastContextJson: args.context as unknown as object,
+      threadStateJson: args.threadState
+        ? (args.threadState as unknown as object)
+        : Prisma.DbNull,
     },
     create: {
       userId: args.viewer.userId,
       householdId: args.viewer.householdId,
       messagesJson: args.messages as unknown as object,
       lastContextJson: args.context as unknown as object,
+      threadStateJson: args.threadState
+        ? (args.threadState as unknown as object)
+        : Prisma.DbNull,
     },
   });
 }
@@ -835,6 +975,58 @@ function moodAdjustment(title: TitleSummary, mood?: AssistantMoodKey | null) {
   }
 
   return 0;
+}
+
+function practicalTonightAdjustment(
+  runtime: AssistantRuntimeContext,
+  title: TitleSummary,
+  practicalTonight?: boolean | null,
+) {
+  if (!practicalTonight) {
+    return 0;
+  }
+
+  let score = 0;
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (title.releaseDate) {
+    if (title.releaseDate <= today) {
+      score += 28;
+    } else {
+      score -= 80;
+    }
+  } else {
+    score -= 18;
+  }
+
+  if (typeof title.runtimeMinutes === "number") {
+    score += 12;
+    if (title.runtimeMinutes <= 120) {
+      score += 8;
+    }
+  } else if (title.mediaType === "movie") {
+    score -= 12;
+  }
+
+  const selectedAvailability = classifySelectedServiceAvailability(
+    title,
+    runtime.preferredProviders,
+  );
+  if (selectedAvailability === "selected_services") {
+    score += 18;
+  } else if (selectedAvailability === "other_services") {
+    score += 4;
+  } else if (selectedAvailability === "unknown") {
+    score -= 8;
+  } else {
+    score -= 10;
+  }
+
+  if (title.providers.length === 0) {
+    score -= 8;
+  }
+
+  return score;
 }
 
 function referenceAdjustment(
@@ -944,6 +1136,123 @@ function buildAssistantTitleKey(title: Pick<TitleSummary, "tmdbId" | "mediaType"
   return toTmdbKey(title.tmdbId, title.mediaType);
 }
 
+export function buildLastRecommendationFromCards(
+  cards: AssistantMessageCard[],
+): AssistantThreadState["lastRecommendation"] {
+  if (cards.length === 0) {
+    return null;
+  }
+
+  return {
+    titleKeys: dedupeTitleKeys(cards.map((card) => buildAssistantTitleKey(card.title))),
+    sourceLabel: cards[0]?.sourceLabel ?? null,
+  };
+}
+
+function isScopeSwitchFollowup(normalizedMessage: string) {
+  return (
+    normalizedMessage.includes("what about") ||
+    normalizedMessage.startsWith("from ") ||
+    normalizedMessage.startsWith("what from") ||
+    normalizedMessage.includes("instead")
+  );
+}
+
+export function isLikelyRefinementMessage(args: {
+  message: string;
+  hasPriorState: boolean;
+  parsed: ReturnType<typeof parseAssistantIntentMessage>;
+}) {
+  if (!args.hasPriorState) {
+    return false;
+  }
+
+  const trimmed = args.message.trim();
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  const normalized = args.parsed.normalized;
+
+  if (
+    args.parsed.wantsWhyThis ||
+    args.parsed.wantsRejectPrevious ||
+    args.parsed.wantsDifferentOptions ||
+    args.parsed.wantsWatchlist ||
+    args.parsed.wantsLibrary
+  ) {
+    return true;
+  }
+
+  if (
+    normalized.startsWith("only ") ||
+    normalized.startsWith("under ") ||
+    normalized.startsWith("something ") ||
+    normalized.startsWith("not ") ||
+    normalized.startsWith("less ") ||
+    normalized.startsWith("more ")
+  ) {
+    return true;
+  }
+
+  if (isScopeSwitchFollowup(normalized)) {
+    return true;
+  }
+
+  const hasConstraintRefinement =
+    args.parsed.wantsOnlyMovies ||
+    args.parsed.wantsOnlyShows ||
+    args.parsed.wantsOurServices ||
+    args.parsed.wantsTonight ||
+    args.parsed.wantsFunny ||
+    args.parsed.wantsLighter ||
+    args.parsed.wantsUnderTwoHours ||
+    args.parsed.wantsUnderNinety ||
+    args.parsed.wantsExcludeWatched;
+
+  return hasConstraintRefinement && wordCount <= 8;
+}
+
+export function buildToolArgsFromThreadState(
+  state: AssistantThreadState,
+  parsed: ReturnType<typeof parseAssistantIntentMessage>,
+): AssistantRecommendationToolArgs {
+  const lastRecommendationCount = state.lastRecommendation?.titleKeys.length ?? 0;
+  const limit =
+    parsed.wantsThree
+      ? 3
+      : parsed.wantsRejectPrevious || parsed.wantsDifferentOptions
+        ? Math.min(
+            Math.max(lastRecommendationCount, DEFAULT_CARD_LIMIT),
+            MAX_TOOL_CARD_COUNT,
+          )
+        : DEFAULT_CARD_LIMIT;
+
+  return {
+    limit,
+    mediaType: state.constraints.mediaType,
+    runtimeMax: state.constraints.runtimeMax,
+    onlyOnPreferredProviders: state.constraints.onlyOnPreferredProviders,
+    provider: state.constraints.provider,
+    mood: state.constraints.mood,
+    referenceTmdbId: state.referenceTitle?.tmdbId ?? null,
+    referenceMediaType: state.referenceTitle?.mediaType ?? null,
+    excludeWatched: state.constraints.excludeWatched,
+    practicalTonight: state.constraints.practicalTonight,
+  };
+}
+
+export function collectRejectedTitleKeys(
+  state: AssistantThreadState,
+  previousCards: AssistantMessageCard[],
+) {
+  const previousKeys =
+    state.shownTitleKeys.length > 0
+      ? state.shownTitleKeys
+      : state.lastRecommendation?.titleKeys.length
+        ? state.lastRecommendation.titleKeys
+      : previousCards.map((card) => buildAssistantTitleKey(card.title));
+
+  return dedupeTitleKeys([...state.rejectedTitleKeys, ...previousKeys]);
+}
+
 export function collectRecentlySuggestedKeys(
   messages: AssistantConversationMessage[],
   maxAssistantMessages = 2,
@@ -1042,19 +1351,33 @@ async function applyTitleFilters(
       adjustedScore:
         item.score +
         moodAdjustment(item.title, args.mood) +
-        referenceAdjustment(item.title, reference),
+        referenceAdjustment(item.title, reference) +
+        practicalTonightAdjustment(runtime, item.title, args.practicalTonight),
     }))
     .sort((left, right) => right.adjustedScore - left.adjustedScore);
 
-  if (!executionContext || executionContext.recentlySuggestedKeys.size === 0) {
+  if (!executionContext) {
     return filtered;
   }
 
-  const freshFirst = filtered.filter(
+  const withoutBlocked =
+    executionContext.blockedTitleKeys.size === 0
+      ? filtered
+      : filtered.filter(
+          (item) =>
+            !executionContext.blockedTitleKeys.has(buildAssistantTitleKey(item.title)),
+        );
+  const blockedAware = withoutBlocked.length > 0 ? withoutBlocked : filtered;
+
+  if (executionContext.recentlySuggestedKeys.size === 0) {
+    return blockedAware;
+  }
+
+  const freshFirst = blockedAware.filter(
     (item) => !executionContext.recentlySuggestedKeys.has(buildAssistantTitleKey(item.title)),
   );
 
-  return freshFirst.length > 0 ? freshFirst : filtered;
+  return freshFirst.length > 0 ? freshFirst : blockedAware;
 }
 
 async function buildRecommendationCards(
@@ -1657,6 +1980,24 @@ export function parseAssistantIntentMessage(args: {
       normalized.includes("why") &&
       args.previousCards.length > 0 &&
       wantsWhyFollowupTarget,
+    wantsRejectPrevious:
+      normalized.includes("not those") ||
+      normalized.includes("not these") ||
+      normalized.includes("not them") ||
+      normalized.includes("don't like those") ||
+      normalized.includes("dont like those") ||
+      normalized.includes("don't like these") ||
+      normalized.includes("dont like these") ||
+      normalized.includes("don't want those") ||
+      normalized.includes("dont want those"),
+    wantsDifferentOptions:
+      normalized.includes("different ones") ||
+      normalized.includes("different options") ||
+      normalized.includes("different movies") ||
+      normalized.includes("something else") ||
+      normalized.includes("something different") ||
+      normalized.includes("other options") ||
+      normalized.includes("other movies"),
     wantsRecommendation:
       normalized.includes("what should") ||
       normalized.includes("what to watch") ||
@@ -1683,6 +2024,10 @@ export function parseAssistantIntentMessage(args: {
       normalized.includes("only show") || normalized.includes("only shows") || normalized.includes("series only"),
     wantsOurServices:
       normalized.includes("our services") || normalized.includes("on our services"),
+    wantsTonight:
+      normalized.includes("tonight") ||
+      normalized.includes("right now") ||
+      normalized.includes("for tonight"),
     wantsExcludeWatched:
       normalized.includes("haven't watched yet") || normalized.includes("not watched yet"),
     wantsFunny: normalized.includes("funny"),
@@ -1690,10 +2035,12 @@ export function parseAssistantIntentMessage(args: {
     wantsUnderTwoHours: normalized.includes("under 2 hours"),
     wantsUnderNinety: normalized.includes("under 90"),
     wantsSharedScope: normalized.includes("shared"),
+    wantsSharedHousehold:
+      normalized.includes("household") || normalized.includes("everyone saved"),
   };
 }
 
-function buildHeuristicToolArgs(
+export function buildHeuristicToolArgs(
   parsed: ReturnType<typeof parseAssistantIntentMessage>,
   previousCards: AssistantMessageCard[],
 ): AssistantRecommendationToolArgs {
@@ -1718,28 +2065,81 @@ function buildHeuristicToolArgs(
     onlyOnPreferredProviders: parsed.wantsOurServices,
     mood: parsed.wantsFunny ? "funny" : parsed.wantsLighter ? "lighter" : null,
     excludeWatched: parsed.wantsExcludeWatched,
+    practicalTonight: parsed.wantsTonight,
   };
+}
+
+function hasStructuredRecommendationSignal(
+  parsed: ReturnType<typeof parseAssistantIntentMessage>,
+) {
+  return (
+    parsed.wantsRecommendation ||
+    parsed.wantsWatchlist ||
+    parsed.wantsLibrary ||
+    parsed.wantsSimilarity ||
+    parsed.wantsFunny ||
+    parsed.wantsLighter ||
+    parsed.wantsOnlyMovies ||
+    parsed.wantsOnlyShows ||
+    parsed.wantsUnderTwoHours ||
+    parsed.wantsUnderNinety ||
+    parsed.wantsOurServices ||
+    parsed.wantsTonight ||
+    parsed.wantsExcludeWatched ||
+    parsed.wantsRejectPrevious ||
+    parsed.wantsDifferentOptions
+  );
+}
+
+async function resolveReferenceTitleFromMessage(args: {
+  runtime: AssistantRuntimeContext;
+  message: string;
+}) {
+  const referenceQuery = args.message.split(/like/i)[1]?.trim() ?? "";
+  if (!referenceQuery) {
+    return null;
+  }
+
+  const search = await getSearchToolPayload(args.runtime, {
+    query: referenceQuery,
+    limit: 1,
+  });
+  const reference = search.results[0];
+
+  return reference
+    ? {
+        tmdbId: reference.tmdbId,
+        mediaType: reference.mediaType,
+        title: reference.title,
+      }
+    : null;
 }
 
 async function tryRunStructuredAssistantTurn(args: {
   runtime: AssistantRuntimeContext;
   history: AssistantConversationMessage[];
   message: string;
+  threadState: AssistantThreadState | null;
 }): Promise<AssistantTurnResult> {
   const previousCards = findMostRecentAssistantCards(args.history);
   const parsed = parseAssistantIntentMessage({
     message: args.message,
     previousCards,
   });
-  const toolExecutionContext: AssistantToolExecutionContext = {
-    recentlySuggestedKeys: collectRecentlySuggestedKeys(args.history),
-  };
+  const existingThreadState = cloneAssistantThreadState(args.threadState);
+  const hasPriorState = hasMeaningfulThreadState(args.threadState);
+  const isRefinement = isLikelyRefinementMessage({
+    message: args.message,
+    hasPriorState,
+    parsed,
+  });
 
-  if (isOffTopicMessage(args.message) && previousCards.length === 0) {
+  if (isOffTopicMessage(args.message) && previousCards.length === 0 && !hasPriorState) {
     return {
       text: `I’m here to help with what to watch for ${args.runtime.context.label}. Ask for a recommendation, a refinement like “only movies” or “something lighter,” or a pick from your watchlist or library.`,
-        cards: [],
-      };
+      cards: [],
+      threadState: args.threadState,
+    };
   }
 
   if (parsed.wantsWhyThis) {
@@ -1747,95 +2147,212 @@ async function tryRunStructuredAssistantTurn(args: {
       return {
         text: summarizeWhyPreviousCards(args.runtime, previousCards),
         cards: previousCards,
+        threadState: hasPriorState ? existingThreadState : args.threadState,
       };
     }
 
     const lead = previousCards[0];
+    if (!lead) {
+      return {
+        text: `I can explain the last recommendation once I have a grounded pick for ${args.runtime.context.label}.`,
+        cards: [],
+        threadState: hasPriorState ? existingThreadState : args.threadState,
+      };
+    }
     const fitPayload = await getFitToolPayload(args.runtime, {
       tmdbId: lead.title.tmdbId,
       mediaType: lead.title.mediaType,
     });
     return {
       text: `${fitPayload.headline}. ${fitPayload.detail}`,
-      cards: fitPayload.cards,
+      cards: fitPayload.cards.length > 0 ? fitPayload.cards : previousCards,
+      threadState: hasPriorState ? existingThreadState : args.threadState,
     };
   }
 
+  if (!hasStructuredRecommendationSignal(parsed) && !isRefinement) {
+    return {
+      text: "",
+      cards: [],
+      threadState: args.threadState,
+    };
+  }
+
+  const nextThreadState = isRefinement
+    ? existingThreadState
+    : buildDefaultAssistantThreadState();
+
   if (parsed.wantsWatchlist) {
-    const scope =
-      parsed.wantsSharedScope || args.runtime.context.isGroupMode
+    nextThreadState.sourceScope = parsed.wantsSharedHousehold
+      ? "shared_household"
+      : parsed.wantsSharedScope || args.runtime.context.isGroupMode
         ? "shared_current"
-        : "personal";
-    const payload = await getWatchlistToolPayload(args.runtime, {
-      scope,
-      ...buildHeuristicToolArgs(parsed, previousCards),
-    }, toolExecutionContext);
+        : "watchlist";
+  } else if (parsed.wantsLibrary) {
+    nextThreadState.sourceScope = "library";
+  } else if (!isRefinement) {
+    nextThreadState.sourceScope = "recommendation";
+  }
+
+  if (parsed.wantsSimilarity) {
+    nextThreadState.referenceTitle = await resolveReferenceTitleFromMessage({
+      runtime: args.runtime,
+      message: args.message,
+    });
+    if (!isRefinement) {
+      nextThreadState.sourceScope = "recommendation";
+    }
+  }
+
+  if (parsed.wantsOnlyMovies) {
+    nextThreadState.constraints.mediaType = "movie";
+  } else if (parsed.wantsOnlyShows) {
+    nextThreadState.constraints.mediaType = "tv";
+  }
+
+  if (parsed.wantsFunny) {
+    nextThreadState.constraints.mood = "funny";
+  } else if (parsed.wantsLighter) {
+    nextThreadState.constraints.mood = "lighter";
+  }
+
+  if (parsed.wantsUnderTwoHours) {
+    nextThreadState.constraints.runtimeMax = 120;
+  } else if (parsed.wantsUnderNinety) {
+    nextThreadState.constraints.runtimeMax = 90;
+  }
+
+  if (parsed.wantsOurServices) {
+    nextThreadState.constraints.onlyOnPreferredProviders = true;
+  }
+
+  if (parsed.wantsExcludeWatched) {
+    nextThreadState.constraints.excludeWatched = true;
+  }
+
+  if (parsed.wantsTonight) {
+    nextThreadState.constraints.practicalTonight = true;
+  }
+
+  if (parsed.wantsRejectPrevious || parsed.wantsDifferentOptions) {
+    nextThreadState.rejectedTitleKeys = collectRejectedTitleKeys(
+      nextThreadState,
+      previousCards,
+    );
+  }
+
+  const toolExecutionContext: AssistantToolExecutionContext = {
+    recentlySuggestedKeys: collectRecentlySuggestedKeys(args.history),
+    blockedTitleKeys: new Set(nextThreadState.rejectedTitleKeys),
+  };
+  const toolArgs = buildToolArgsFromThreadState(nextThreadState, parsed);
+
+  if (
+    nextThreadState.sourceScope === "watchlist" ||
+    nextThreadState.sourceScope === "shared_current" ||
+    nextThreadState.sourceScope === "shared_household"
+  ) {
+    const payload = await getWatchlistToolPayload(
+      args.runtime,
+      {
+        scope:
+          nextThreadState.sourceScope === "watchlist"
+            ? "personal"
+            : nextThreadState.sourceScope === "shared_household"
+              ? "shared_household"
+              : "shared_current",
+        ...toolArgs,
+      },
+      toolExecutionContext,
+    );
+
+    nextThreadState.lastRecommendation =
+      payload.cards.length > 0
+        ? buildLastRecommendationFromCards(payload.cards)
+        : parsed.wantsRejectPrevious || parsed.wantsDifferentOptions
+          ? null
+          : nextThreadState.lastRecommendation;
+    if (payload.cards.length > 0) {
+      nextThreadState.shownTitleKeys = dedupeTitleKeys([
+        ...nextThreadState.shownTitleKeys,
+        ...payload.cards.map((card) => buildAssistantTitleKey(card.title)),
+      ]);
+    }
 
     return {
       text:
         payload.cards.length > 0
           ? summarizeCards(args.runtime, payload.cards, "saved pick")
-          : args.runtime.context.isGroupMode
+          : nextThreadState.sourceScope === "shared_current"
             ? `I did not find a strong pick from this group's saved titles right now. If you want, I can widen that to fresh recommendations on your services instead.`
-            : "I did not find a strong pick from your saved titles right now. If you want, I can widen that to fresh recommendations instead.",
+            : nextThreadState.sourceScope === "shared_household"
+              ? "I did not find a strong pick from the household's saved titles right now. If you want, I can widen that to fresh recommendations instead."
+              : "I did not find a strong pick from your saved titles right now. If you want, I can widen that to fresh recommendations instead.",
       cards: payload.cards,
+      threadState: hasMeaningfulThreadState(nextThreadState) ? nextThreadState : null,
     };
   }
 
-  if (parsed.wantsLibrary) {
-    const payload = await getLibraryToolPayload(args.runtime, {
-      collection: "overview",
-      focus: parsed.wantsOurServices || parsed.normalized.includes("available") ? "available" : "all",
-      ...buildHeuristicToolArgs(parsed, previousCards),
-    }, toolExecutionContext);
+  if (nextThreadState.sourceScope === "library") {
+    const payload = await getLibraryToolPayload(
+      args.runtime,
+      {
+        collection: "overview",
+        focus:
+          nextThreadState.constraints.onlyOnPreferredProviders ||
+          parsed.normalized.includes("available")
+            ? "available"
+            : "all",
+        ...toolArgs,
+      },
+      toolExecutionContext,
+    );
+
+    nextThreadState.lastRecommendation =
+      payload.cards.length > 0
+        ? buildLastRecommendationFromCards(payload.cards)
+        : parsed.wantsRejectPrevious || parsed.wantsDifferentOptions
+          ? null
+          : nextThreadState.lastRecommendation;
+    if (payload.cards.length > 0) {
+      nextThreadState.shownTitleKeys = dedupeTitleKeys([
+        ...nextThreadState.shownTitleKeys,
+        ...payload.cards.map((card) => buildAssistantTitleKey(card.title)),
+      ]);
+    }
 
     return {
       text: summarizeCards(args.runtime, payload.cards, "library pick"),
       cards: payload.cards,
+      threadState: hasMeaningfulThreadState(nextThreadState) ? nextThreadState : null,
     };
   }
 
-  if (parsed.wantsSimilarity) {
-    const referenceQuery = args.message.split(/like/i)[1]?.trim() ?? "";
-    const search = await getSearchToolPayload(args.runtime, {
-      query: referenceQuery,
-      limit: 1,
-    });
-    const reference = search.results[0];
-    const payload = await getRecommendationToolPayload(args.runtime, {
-      ...buildHeuristicToolArgs(parsed, previousCards),
-      referenceTmdbId: reference?.tmdbId ?? null,
-      referenceMediaType: reference?.mediaType ?? null,
-    }, toolExecutionContext);
-
-    return {
-      text: summarizeCards(args.runtime, payload.cards, "similar pick"),
-      cards: payload.cards,
-    };
-  }
-
-  // Generic recommendation catch-all: explicit recommendation asks ("what should I watch",
-  // "recommend something", etc.) and any unrecognised message that has heuristic signals
-  // like a mood, media type, or runtime preference. This ensures the structured path always
-  // returns grounded results rather than falling through to an unconstrained LLM response.
-  if (parsed.wantsRecommendation || parsed.wantsFunny || parsed.wantsLighter ||
-      parsed.wantsOnlyMovies || parsed.wantsOnlyShows || parsed.wantsUnderTwoHours ||
-      parsed.wantsUnderNinety || parsed.wantsOurServices) {
-    const payload = await getRecommendationToolPayload(
-      args.runtime,
-      buildHeuristicToolArgs(parsed, previousCards),
-      toolExecutionContext,
-    );
-
-    return {
-      text: summarizeCards(args.runtime, payload.cards, "pick"),
-      cards: payload.cards,
-    };
+  const payload = await getRecommendationToolPayload(
+    args.runtime,
+    toolArgs,
+    toolExecutionContext,
+  );
+  nextThreadState.lastRecommendation =
+    payload.cards.length > 0
+      ? buildLastRecommendationFromCards(payload.cards)
+      : parsed.wantsRejectPrevious || parsed.wantsDifferentOptions
+        ? null
+        : nextThreadState.lastRecommendation;
+  if (payload.cards.length > 0) {
+    nextThreadState.shownTitleKeys = dedupeTitleKeys([
+      ...nextThreadState.shownTitleKeys,
+      ...payload.cards.map((card) => buildAssistantTitleKey(card.title)),
+    ]);
   }
 
   return {
-    text: "",
-    cards: [],
+    text:
+      parsed.wantsSimilarity
+        ? summarizeCards(args.runtime, payload.cards, "similar pick")
+        : summarizeCards(args.runtime, payload.cards, "pick"),
+    cards: payload.cards,
+    threadState: hasMeaningfulThreadState(nextThreadState) ? nextThreadState : null,
   };
 }
 
@@ -1843,10 +2360,12 @@ async function runMockAssistantTurn(args: {
   runtime: AssistantRuntimeContext;
   history: AssistantConversationMessage[];
   message: string;
+  threadState: AssistantThreadState | null;
 }): Promise<AssistantTurnResult> {
   const previousCards = findMostRecentAssistantCards(args.history);
   const toolExecutionContext: AssistantToolExecutionContext = {
     recentlySuggestedKeys: collectRecentlySuggestedKeys(args.history),
+    blockedTitleKeys: new Set(args.threadState?.rejectedTitleKeys ?? []),
   };
   const parsed = parseAssistantIntentMessage({
     message: args.message,
@@ -1865,6 +2384,7 @@ async function runMockAssistantTurn(args: {
   return {
     text: summarizeCards(args.runtime, payload.cards, "pick"),
     cards: payload.cards,
+    threadState: args.threadState,
   };
 }
 
@@ -1954,6 +2474,7 @@ function getOpenAiTools() {
             referenceTmdbId: { type: ["integer", "null"] },
             referenceMediaType: { type: ["string", "null"], enum: ["movie", "tv", null] },
             excludeWatched: { type: ["boolean", "null"] },
+            practicalTonight: { type: ["boolean", "null"] },
           },
         },
       },
@@ -1983,6 +2504,7 @@ function getOpenAiTools() {
             referenceTmdbId: { type: ["integer", "null"] },
             referenceMediaType: { type: ["string", "null"], enum: ["movie", "tv", null] },
             excludeWatched: { type: ["boolean", "null"] },
+            practicalTonight: { type: ["boolean", "null"] },
           },
           required: ["scope"],
         },
@@ -2031,6 +2553,7 @@ function getOpenAiTools() {
             referenceTmdbId: { type: ["integer", "null"] },
             referenceMediaType: { type: ["string", "null"], enum: ["movie", "tv", null] },
             excludeWatched: { type: ["boolean", "null"] },
+            practicalTonight: { type: ["boolean", "null"] },
           },
         },
       },
@@ -2124,6 +2647,7 @@ async function runOpenAiAssistantTurn(args: {
   history: AssistantConversationMessage[];
   message: string;
   lastContext: AssistantContextSnapshot | null;
+  threadState: AssistantThreadState | null;
 }): Promise<AssistantTurnResult> {
   const structuredTurn = await tryRunStructuredAssistantTurn(args);
 
@@ -2139,6 +2663,7 @@ async function runOpenAiAssistantTurn(args: {
   let latestCards: AssistantMessageCard[] = [];
   const toolExecutionContext: AssistantToolExecutionContext = {
     recentlySuggestedKeys: collectRecentlySuggestedKeys(args.history),
+    blockedTitleKeys: new Set(args.threadState?.rejectedTitleKeys ?? []),
   };
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -2157,7 +2682,10 @@ async function runOpenAiAssistantTurn(args: {
       });
 
       if (pseudoToolResult) {
-        return pseudoToolResult;
+        return {
+          ...pseudoToolResult,
+          threadState: args.threadState,
+        };
       }
 
       return {
@@ -2165,6 +2693,7 @@ async function runOpenAiAssistantTurn(args: {
           assistantMessage.content?.trim() ||
           summarizeCards(args.runtime, latestCards, "pick"),
         cards: latestCards,
+        threadState: args.threadState,
       };
     }
 
@@ -2215,6 +2744,7 @@ async function runOpenAiAssistantTurn(args: {
         ? summarizeCards(args.runtime, latestCards, "pick")
         : "I could not finish that recommendation cleanly. Try a simpler ask like “only movies on our services” or “what from our watchlist fits tonight?”",
     cards: latestCards,
+    threadState: args.threadState,
   };
 }
 
@@ -2226,12 +2756,14 @@ async function loadStoredConversation(viewer: AssistantViewer) {
     select: {
       messagesJson: true,
       lastContextJson: true,
+      threadStateJson: true,
     },
   });
 
   return {
     messages: parseStoredMessages(record?.messagesJson),
     lastContext: parseStoredContext(record?.lastContextJson),
+    threadState: parseStoredThreadState(record?.threadStateJson),
   };
 }
 
@@ -2248,6 +2780,7 @@ export async function getAssistantConversationSnapshot(args: {
     providerLabel: assistantRuntime.providerLabel,
     context: runtime.context,
     messages: stored.messages,
+    threadState: stored.threadState,
   };
 }
 
@@ -2280,12 +2813,14 @@ export async function sendAssistantMessage(args: {
         runtime,
         history: historyForModel,
         message: args.message,
+        threadState: stored.threadState,
       })
     : await runOpenAiAssistantTurn({
         runtime,
         history: historyForModel,
         message: args.message,
         lastContext: stored.lastContext,
+        threadState: stored.threadState,
       });
 
   const assistantMessage = createMessage("assistant", turn.text, turn.cards);
@@ -2295,6 +2830,7 @@ export async function sendAssistantMessage(args: {
     viewer: args.viewer,
     messages,
     context: runtime.context,
+    threadState: turn.threadState,
   });
 
   return {
@@ -2303,5 +2839,6 @@ export async function sendAssistantMessage(args: {
     providerLabel: assistantRuntime.providerLabel,
     context: runtime.context,
     messages,
+    threadState: turn.threadState,
   };
 }

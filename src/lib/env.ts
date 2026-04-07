@@ -13,6 +13,7 @@ export const env = {
   tmdbWatchRegion: process.env.TMDB_WATCH_REGION ?? "US",
   tmdbUseMockData:
     process.env.TMDB_USE_MOCK_DATA === "1" || !process.env.TMDB_API_KEY,
+  traktEncryptionKey: process.env.TRAKT_ENCRYPTION_KEY,
   traktClientId: process.env.TRAKT_CLIENT_ID,
   traktClientSecret: process.env.TRAKT_CLIENT_SECRET,
   traktRedirectUri:
