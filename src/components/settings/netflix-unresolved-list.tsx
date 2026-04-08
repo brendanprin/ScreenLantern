@@ -215,7 +215,19 @@ export function NetflixUnresolvedList({ initialItems }: NetflixUnresolvedListPro
   const visibleItems = items.filter((item) => !states[item.id]?.done);
 
   if (visibleItems.length === 0) {
-    return null;
+    if (items.length === 0) return null;
+    return (
+      <Card className="bg-white/80">
+        <CardHeader>
+          <CardTitle>Unresolved Netflix titles</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-green-600">
+            All {items.length} unresolved {items.length === 1 ? "title has" : "titles have"} been handled.
+          </p>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

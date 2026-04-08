@@ -53,6 +53,7 @@ export function NetflixSyncForm({ initialStatus }: NetflixSyncFormProps) {
   const [isTriggerPending, setIsTriggerPending] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollFailuresRef = useRef(0);
 
   const fetchStatus = useCallback(async (): Promise<NetflixSyncStatus | null> => {
     try {
@@ -77,9 +78,23 @@ export function NetflixSyncForm({ initialStatus }: NetflixSyncFormProps) {
 
   const startPolling = useCallback(() => {
     if (pollingRef.current !== null) return;
+    pollFailuresRef.current = 0;
     pollingRef.current = setInterval(async () => {
       const latest = await fetchStatus();
-      if (!latest || latest.state?.status !== "running") {
+      if (latest === null) {
+        pollFailuresRef.current += 1;
+        if (pollFailuresRef.current >= 3) {
+          stopPolling();
+          setIsTriggerPending(false);
+          setMessage({
+            type: "error",
+            text: "Lost connection to the sync service. Refresh the page to check status.",
+          });
+        }
+        return;
+      }
+      pollFailuresRef.current = 0;
+      if (latest.state?.status !== "running") {
         stopPolling();
         setIsTriggerPending(false);
       }
