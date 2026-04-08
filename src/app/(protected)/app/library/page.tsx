@@ -120,9 +120,7 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
         <CardHeader>
           <p className="text-sm uppercase tracking-[0.24em] text-primary/70">Library</p>
           <CardTitle className="max-w-3xl text-4xl">
-            {workspace.isGroupMode
-              ? `Decision workspace for ${workspace.contextLabel}`
-              : `Decision workspace for ${workspace.contextLabel}`}
+            {`Decision workspace for ${workspace.contextLabel}`}
           </CardTitle>
           <p className="max-w-2xl text-sm text-muted-foreground">
             {workspace.isGroupMode

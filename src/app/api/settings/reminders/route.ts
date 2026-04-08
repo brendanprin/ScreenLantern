@@ -21,11 +21,15 @@ export async function POST(request: Request) {
     );
   }
 
-  await updateReminderPreferences({
-    userId: user.userId,
-    householdId: user.householdId,
-    preferences: parsed.data,
-  });
+  try {
+    await updateReminderPreferences({
+      userId: user.userId,
+      householdId: user.householdId,
+      preferences: parsed.data,
+    });
 
-  return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Unable to save reminder preferences." }, { status: 500 });
+  }
 }

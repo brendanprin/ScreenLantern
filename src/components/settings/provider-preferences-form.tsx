@@ -21,6 +21,8 @@ export function ProviderPreferencesForm({
   const [isPending, startTransition] = useTransition();
   const [values, setValues] = useState<string[]>(selectedProviders);
   const [query, setQuery] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   function toggle(provider: string) {
     setValues((current) =>
@@ -31,16 +33,27 @@ export function ProviderPreferencesForm({
   }
 
   function save() {
+    setSaveError(null);
+    setSaveSuccess(false);
     startTransition(async () => {
-      await fetch("/api/settings/providers", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ providers: values }),
-      });
+      try {
+        const res = await fetch("/api/settings/providers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ providers: values }),
+        });
 
-      router.refresh();
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setSaveError((data as { error?: string }).error ?? "Unable to save provider preferences.");
+          return;
+        }
+
+        setSaveSuccess(true);
+        router.refresh();
+      } catch {
+        setSaveError("Unable to save provider preferences. Check your connection and try again.");
+      }
     });
   }
 
@@ -107,9 +120,17 @@ export function ProviderPreferencesForm({
           </p>
         )}
 
-        <Button disabled={isPending} onClick={save}>
-          {isPending ? "Saving..." : "Save preferences"}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button disabled={isPending} onClick={save}>
+            {isPending ? "Saving..." : "Save preferences"}
+          </Button>
+          {saveSuccess && !isPending && (
+            <span className="text-sm text-green-600">Saved</span>
+          )}
+          {saveError && (
+            <span className="text-sm text-destructive">{saveError}</span>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

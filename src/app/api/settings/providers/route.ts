@@ -22,11 +22,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid provider payload." }, { status: 400 });
   }
 
-  await updateProviderPreferences({
-    userId: user.userId,
-    providers: parsed.data.providers,
-  });
+  try {
+    await updateProviderPreferences({
+      userId: user.userId,
+      providers: parsed.data.providers,
+    });
 
-  return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: "Unable to save provider preferences." }, { status: 500 });
+  }
 }
 
