@@ -168,6 +168,8 @@ export type RecommendationExplanationCategory =
   | "watch_history"
   | "group_watch_history"
   | "fresh_group_pick"
+  | "recency_signal"
+  | "imported_history"
   | "fallback";
 
 export interface RecommendationExplanation {
@@ -407,6 +409,10 @@ export interface TasteProfile {
   dislikedTmdbKeys: string[];
   hiddenTmdbKeys: string[];
   watchedTmdbKeys: string[];
+  /** Titles watched via Trakt or Netflix import (any age). Stronger suppression than manual watched. */
+  importedWatchedTmdbKeys: string[];
+  /** Titles watched within the last 30 days (any source). Strongest suppression — held back for fresher picks. */
+  recentlyWatchedTmdbKeys: string[];
 }
 
 export type AssistantConversationRole = "user" | "assistant";

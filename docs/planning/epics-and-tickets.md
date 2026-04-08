@@ -31,6 +31,30 @@
 - richer comparison flows such as “option 2 vs option 3”
 - more advanced assistant planning and orchestration beyond grounded recommendation help
 
+## Recommendation System Upgrade — Imported History Signals
+
+- Status: implemented
+- Goal:
+  - materially improve recommendation quality using real imported streaming history already in the app
+  - without replacing the full recommendation architecture
+- Scope delivered:
+  - source-aware interaction weights: manual ScreenLantern actions remain authoritative; Trakt/Netflix imports shape taste at reduced strength
+  - recency decay on taste profile build: recent interactions up to 1.3× weight, old interactions down to 0.5×
+  - two new TasteProfile fields: `importedWatchedTmdbKeys` and `recentlyWatchedTmdbKeys`
+  - tiered watched suppression in `scoreRecommendationCandidate`: recently watched -65, imported watched -48, manual watched -24
+  - group profile correctly unions the new watched key sets across all members
+  - personal watchlist items included in main recommendation candidate pool (not only in resurfacing lanes)
+  - two new explanation categories: `recency_signal` and `imported_history`
+  - improved watch history explanation language: recently watched, imported history, and manual watched are now distinguished
+  - assistant benefits automatically — no changes to assistant service
+  - 15 new tests covering all changed behaviors
+- Deferred:
+  - ML-based or embedding collaborative filtering
+  - cast/crew preference signals
+  - watch-time or completion rate signals (Netflix does not expose these)
+  - mood-based signal extraction from viewing history
+  - cross-household signals
+
 ## Related Ongoing Epics
 
 - Trakt sync review and trust-building UI

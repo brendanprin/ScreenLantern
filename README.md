@@ -31,7 +31,12 @@ The current product is intentionally focused on discovery, library management, e
 - Solo recommendation mode
 - Combined household recommendation mode
 - Group watch-session modeling that stays distinct from solo watched history
+- Recommendation scoring that uses imported Trakt/Netflix history with reduced weight versus manual ScreenLantern actions
+- Recency-aware taste profile: recent interactions shape recommendations more than old history
+- Tiered watched suppression: recently watched titles are strongly held back, imported history is moderately suppressed, manual watched is lightly penalized for rewatch potential
+- Watchlist items included in the main recommendation candidate pool alongside TMDb catalog results
 - Recommendation cards with concise explanation reasons plus a lightweight “Why this?” disclosure
+- Explanation language that distinguishes recently watched, imported history, and manually marked watched
 - AI recommendation assistant page with one active thread per signed-in user, active solo/group context labeling, a persisted current ask, structured result cards, and grounded follow-up refinement memory
 - Home resurfacing lanes for watchlist titles that are back on your radar or available now on your services
 - In-app reminder center for newly available and resurfaced watchlist titles in the current solo or group context

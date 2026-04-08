@@ -162,13 +162,56 @@ The app is designed to fail honestly when streaming metadata or handoff assumpti
 
 Recommendation logic is isolated behind `getRecommendedTitles`, `getUserTasteProfile`, and `getGroupTasteProfile`. The UI does not directly encode ranking logic.
 
+### Imported History Signal Weighting
+
+Imported interactions (Trakt and Netflix) are used in recommendation scoring but with deliberately reduced weight compared to manual ScreenLantern actions.
+
+- manual `LIKE` weight: 3 | imported `LIKE` weight: 2.0
+- manual `WATCHED` weight: 1.5 | imported `WATCHED` weight: 0.8
+- manual `WATCHLIST` weight: 1 | imported `WATCHLIST` weight: 0.7
+- manual `DISLIKE` weight: -4 | imported `DISLIKE` weight: -3.0
+- `HIDE` remains -5 regardless of source
+
+Imported `WATCHED` history is tracked separately as `importedWatchedTmdbKeys` inside the `TasteProfile`. This allows tiered watched suppression without blurring the manual vs imported distinction.
+
+### Recency Decay
+
+Interaction weights are multiplied by a time-decay factor before shaping genre scores, media type preferences, and runtime preferences. This does not affect set membership (disliked/hidden/watched keys remain binary).
+
+Decay schedule (applied at taste profile build time):
+- ≤ 14 days: 1.3× (very fresh signal, small bonus)
+- ≤ 90 days: 1.0× (full weight)
+- ≤ 365 days: 0.75×
+- > 365 days: 0.5×
+
+Titles watched in the last 30 days are also tracked separately as `recentlyWatchedTmdbKeys`.
+
+### Tiered Watched Suppression
+
+`scoreRecommendationCandidate` applies one of three exclusive watched penalties:
+
+1. `recentlyWatchedTmdbKeys` contains key → -65 (very strong: watched in last 30 days)
+2. `importedWatchedTmdbKeys` contains key (not recent) → -48 (strong: in Trakt/Netflix history)
+3. `watchedTmdbKeys` contains key only → -24 (mild: manual, rewatch potential remains)
+
+The most severe applicable tier wins. Penalties do not stack.
+
+### Watchlist Items as Scored Candidates
+
+Personal watchlist items are included in the main recommendation candidate pool (in addition to appearing in dedicated resurfacing lanes). This means a watchlist title can rank in the top-18 main recommendations if it scores well against the current profile. Resurfacing lanes remain separate and use watchlist-specific explanations.
+
 ### Recommendation Explanation Contract
 
 Recommendation results carry structured explanation objects rather than ad hoc UI strings.
 
-- `category` identifies the kind of signal, such as genre overlap, provider match, watchlist resurfacing, runtime fit, or prior group watch history
+- `category` identifies the kind of signal: `genre_overlap`, `group_overlap`, `provider_match`, `runtime_fit`, `media_fit`, `watchlist_resurface`, `watch_history`, `group_watch_history`, `fresh_group_pick`, `recency_signal`, `imported_history`, `fallback`
 - `summary` is short, human-readable card copy
 - `detail` gives one extra layer of context for the lightweight “Why this?” disclosure
+
+Watch history explanations distinguish between:
+- recently watched: “You watched this recently” (signals why it is held back)
+- imported history: “In your imported viewing history” (Trakt/Netflix source is named)
+- manual watched: “You have watched this before” (mild rewatch framing)
 
 This keeps recommendation transparency close to the scoring rules and makes the same primitives reusable for the current assistant layer and future debugging surfaces.
 

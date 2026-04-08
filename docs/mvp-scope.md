@@ -29,6 +29,10 @@
 - Solo recommendation feed
 - Group recommendation feed
 - Recommendation explanation surfacing on the main Home / For You feed
+- Imported history signal weighting (Trakt/Netflix at reduced strength vs manual ScreenLantern actions)
+- Recency decay for interaction weights during taste profile build
+- Tiered watched suppression (recently watched → strongest, imported watched → strong, manual watched → mild)
+- Watchlist items included in main recommendation candidate pool
 - Watchlist resurfacing lanes for `Available now on your services` and `Back on your radar`
 - In-app reminders inbox with read/dismiss state for current-context resurfaced titles
 - Reminder preferences for category toggles, solo/group gating, resurfacing pace, and dismissed-reminder reappearance

@@ -1,6 +1,6 @@
-import { InteractionType, Prisma, RecommendationMode } from "@prisma/client";
+import { InteractionType, Prisma, RecommendationMode, SourceContext } from "@prisma/client";
 
-import { formatList } from "@/lib/utils";
+import { dedupeByKey, formatList } from "@/lib/utils";
 
 import { prisma } from "@/lib/prisma";
 import {
@@ -50,6 +50,53 @@ function runtimeBand(runtimeMinutes?: number | null) {
   }
 
   return "long" as const;
+}
+
+const IMPORTED_SOURCE_CONTEXTS = new Set<SourceContext>([
+  SourceContext.IMPORTED,
+  SourceContext.NETFLIX_IMPORTED,
+]);
+
+const RECENTLY_WATCHED_DAYS = 30;
+
+/**
+ * Returns a 0–1.3 multiplier based on how recently the interaction happened.
+ * Very recent signals get a bonus; old signals are discounted.
+ * Only applied to taste-shaping (genre/mediaType/runtime) — not to dislike/hide/watched set membership.
+ */
+function recencyMultiplier(updatedAt: Date): number {
+  const daysAgo = (Date.now() - updatedAt.getTime()) / (1000 * 60 * 60 * 24);
+  if (daysAgo <= 14) return 1.3;
+  if (daysAgo <= 90) return 1.0;
+  if (daysAgo <= 365) return 0.75;
+  return 0.5;
+}
+
+/**
+ * Returns the base weight for an interaction type, adjusted for import source.
+ * Manual ScreenLantern actions remain fully authoritative.
+ * Imported signals shape taste but with reduced force, since they reflect passive
+ * history rather than deliberate in-app choices.
+ */
+function interactionBaseWeight(
+  interactionType: InteractionType,
+  sourceContext: SourceContext,
+): number {
+  const isImported = IMPORTED_SOURCE_CONTEXTS.has(sourceContext);
+
+  switch (interactionType) {
+    case InteractionType.LIKE:
+      return isImported ? 2.0 : 3;
+    case InteractionType.WATCHED:
+      return isImported ? 0.8 : 1.5;
+    case InteractionType.WATCHLIST:
+      return isImported ? 0.7 : 1;
+    case InteractionType.DISLIKE:
+      return isImported ? -3.0 : -4;
+    case InteractionType.HIDE:
+    default:
+      return -5;
+  }
 }
 
 function normalizeMediaPreference(movieScore: number, tvScore: number) {
@@ -119,6 +166,8 @@ function buildGroupTasteProfileFromProfiles(profiles: TasteProfile[]): TasteProf
   const dislikedTmdbKeys = new Set<string>();
   const hiddenTmdbKeys = new Set<string>();
   const watchedTmdbKeys = new Set<string>();
+  const importedWatchedTmdbKeys = new Set<string>();
+  const recentlyWatchedTmdbKeys = new Set<string>();
   let movieVotes = 0;
   let tvVotes = 0;
   let shortVotes = 0;
@@ -137,6 +186,8 @@ function buildGroupTasteProfileFromProfiles(profiles: TasteProfile[]): TasteProf
     profile.dislikedTmdbKeys.forEach((key) => dislikedTmdbKeys.add(key));
     profile.hiddenTmdbKeys.forEach((key) => hiddenTmdbKeys.add(key));
     profile.watchedTmdbKeys.forEach((key) => watchedTmdbKeys.add(key));
+    profile.importedWatchedTmdbKeys.forEach((key) => importedWatchedTmdbKeys.add(key));
+    profile.recentlyWatchedTmdbKeys.forEach((key) => recentlyWatchedTmdbKeys.add(key));
 
     if (profile.preferredMediaType === "movie") movieVotes += 1;
     if (profile.preferredMediaType === "tv") tvVotes += 1;
@@ -169,12 +220,14 @@ function buildGroupTasteProfileFromProfiles(profiles: TasteProfile[]): TasteProf
     dislikedTmdbKeys: [...dislikedTmdbKeys],
     hiddenTmdbKeys: [...hiddenTmdbKeys],
     watchedTmdbKeys: [...watchedTmdbKeys],
+    importedWatchedTmdbKeys: [...importedWatchedTmdbKeys],
+    recentlyWatchedTmdbKeys: [...recentlyWatchedTmdbKeys],
   };
 }
 
-type InteractionForTaste = Awaited<ReturnType<typeof getInteractionsForTaste>>[number];
+export type InteractionForTaste = Awaited<ReturnType<typeof getInteractionsForTaste>>[number];
 
-function buildTasteProfileFromInteractions(
+export function buildTasteProfileFromInteractions(
   userId: string,
   interactions: InteractionForTaste[],
   user: { id: string; preferredProviders: string[]; defaultMediaType: string | null },
@@ -183,22 +236,22 @@ function buildTasteProfileFromInteractions(
   const dislikedTmdbKeys = new Set<string>();
   const hiddenTmdbKeys = new Set<string>();
   const watchedTmdbKeys = new Set<string>();
+  const importedWatchedTmdbKeys = new Set<string>();
+  const recentlyWatchedTmdbKeys = new Set<string>();
   let movieScore = 0;
   let tvScore = 0;
   let runtimeAccumulator = 0;
   let runtimeCount = 0;
 
   interactions.forEach((interaction) => {
-    const weight =
-      interaction.interactionType === InteractionType.LIKE
-        ? 3
-        : interaction.interactionType === InteractionType.WATCHED
-          ? 1.5
-          : interaction.interactionType === InteractionType.WATCHLIST
-            ? 1
-            : interaction.interactionType === InteractionType.DISLIKE
-              ? -4
-              : -5;
+    const weight = interactionBaseWeight(
+      interaction.interactionType,
+      interaction.sourceContext,
+    );
+    const decay = recencyMultiplier(interaction.updatedAt);
+    // Effective taste weight — decay applies only to positive/negative taste shaping,
+    // not to the binary set membership checks below.
+    const tasteWeight = weight * decay;
 
     const key = toTmdbKey(
       interaction.title.tmdbId,
@@ -215,20 +268,30 @@ function buildTasteProfileFromInteractions(
 
     if (interaction.interactionType === InteractionType.WATCHED) {
       watchedTmdbKeys.add(key);
+
+      if (IMPORTED_SOURCE_CONTEXTS.has(interaction.sourceContext)) {
+        importedWatchedTmdbKeys.add(key);
+      }
+
+      const daysAgo =
+        (Date.now() - interaction.updatedAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysAgo <= RECENTLY_WATCHED_DAYS) {
+        recentlyWatchedTmdbKeys.add(key);
+      }
     }
 
     interaction.title.genres.forEach((genre) => {
-      genreScores.set(genre, (genreScores.get(genre) ?? 0) + weight);
+      genreScores.set(genre, (genreScores.get(genre) ?? 0) + tasteWeight);
     });
 
     if (interaction.title.mediaType === "MOVIE") {
-      movieScore += weight;
+      movieScore += tasteWeight;
     } else {
-      tvScore += weight;
+      tvScore += tasteWeight;
     }
 
     if (
-      weight > 0 &&
+      tasteWeight > 0 &&
       interaction.title.runtimeMinutes &&
       interaction.title.runtimeMinutes > 0
     ) {
@@ -255,6 +318,8 @@ function buildTasteProfileFromInteractions(
     dislikedTmdbKeys: [...dislikedTmdbKeys],
     hiddenTmdbKeys: [...hiddenTmdbKeys],
     watchedTmdbKeys: [...watchedTmdbKeys],
+    importedWatchedTmdbKeys: [...importedWatchedTmdbKeys],
+    recentlyWatchedTmdbKeys: [...recentlyWatchedTmdbKeys],
   };
 }
 
@@ -384,6 +449,8 @@ export function buildRecommendationExplanations(args: {
   mediaTypeMatch: boolean;
   runtimeMatch: boolean;
   previouslyWatched: boolean;
+  recentlyWatched?: boolean;
+  importedWatched?: boolean;
   groupWatchedBefore: boolean;
 }): RecommendationExplanation[] {
   const explanations: RecommendationExplanation[] = [];
@@ -471,7 +538,27 @@ export function buildRecommendationExplanations(args: {
     });
   }
 
-  if (args.previouslyWatched) {
+  if (args.recentlyWatched) {
+    addExplanation(explanations, {
+      category: "watch_history",
+      summary:
+        args.mode === "solo"
+          ? "You watched this recently"
+          : "At least one selected member watched this recently",
+      detail:
+        "It showed up in your recent viewing history, so ScreenLantern is holding it back for fresher options.",
+    });
+  } else if (args.importedWatched) {
+    addExplanation(explanations, {
+      category: "imported_history",
+      summary:
+        args.mode === "solo"
+          ? "In your imported viewing history"
+          : "In a selected member's imported viewing history",
+      detail:
+        "This is in your Trakt or Netflix history. ScreenLantern is keeping it back to favour unwatched options.",
+    });
+  } else if (args.previouslyWatched) {
     addExplanation(explanations, {
       category: "watch_history",
       summary:
@@ -489,6 +576,15 @@ export function buildRecommendationExplanations(args: {
       summary: "This exact group has not watched it together yet",
       detail:
         "That makes it a fresher option for this room than a known group rewatch.",
+    });
+  }
+
+  if (args.mode === "solo" && explanations.length < 2) {
+    addExplanation(explanations, {
+      category: "recency_signal",
+      summary: "Reflects your recent viewing taste",
+      detail:
+        "Your recent interactions are shaping this pick more than older history.",
     });
   }
 
@@ -720,6 +816,11 @@ export function scoreRecommendationCandidate(
     sharedGenres: options.sharedGenres,
   });
   const previouslyWatched = profile.watchedTmdbKeys.includes(tmdbKey);
+  const recentlyWatched = profile.recentlyWatchedTmdbKeys.includes(tmdbKey);
+  // Imported-watched check only applies to titles NOT already flagged as recently watched
+  // so the tiers are exclusive and the most severe suppression wins.
+  const importedWatched =
+    !recentlyWatched && profile.importedWatchedTmdbKeys.includes(tmdbKey);
   const groupWatchedBefore = Boolean(options.groupWatchedBefore);
 
   if (profile.hiddenTmdbKeys.includes(tmdbKey)) {
@@ -776,7 +877,15 @@ export function scoreRecommendationCandidate(
     score += 6;
   }
 
-  if (previouslyWatched) {
+  // Tiered watched suppression — tiers are exclusive; most severe wins.
+  // Recently watched (last 30 days, any source): very strong — hold back for fresher picks.
+  // Imported watched (Trakt/Netflix, not recent): strong — already in viewing history.
+  // Manual watched (not recent, not imported): mild — rewatch potential stays.
+  if (recentlyWatched) {
+    score -= 65;
+  } else if (importedWatched) {
+    score -= 48;
+  } else if (previouslyWatched) {
     score -= 24;
   }
 
@@ -796,6 +905,8 @@ export function scoreRecommendationCandidate(
       mediaTypeMatch,
       runtimeMatch,
       previouslyWatched,
+      recentlyWatched,
+      importedWatched,
       groupWatchedBefore,
     }),
   };
@@ -1204,7 +1315,26 @@ export async function getRecommendedTitles(args: {
     providers: profile.preferredProviders,
   });
 
-  const ranked: RecommendationItem[] = candidatePool
+  // Include personal watchlist items as scored candidates so that strong watchlist
+  // titles can surface in the main ranked list, not only in the resurfacing lanes.
+  const watchlistInteractionsForPool = await prisma.userTitleInteraction.findMany({
+    where: {
+      userId: { in: args.userIds },
+      interactionType: InteractionType.WATCHLIST,
+    },
+    include: { title: true },
+    orderBy: { updatedAt: "desc" },
+    take: 40,
+  });
+  const watchlistCandidates = watchlistInteractionsForPool.map((i) =>
+    mapTitleCacheToSummary(i.title),
+  );
+  const allCandidates = dedupeByKey(
+    [...candidatePool, ...watchlistCandidates],
+    (t) => toTmdbKey(t.tmdbId, t.mediaType),
+  );
+
+  const ranked: RecommendationItem[] = allCandidates
     .map((title) => {
       const scored = scoreRecommendationCandidate(title, profile, {
         mode,

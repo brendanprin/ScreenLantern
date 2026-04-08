@@ -141,6 +141,43 @@ In the current MVP implementation, membership is represented directly on the `Us
 - Stores concise summary/detail copy for the Activity page without requiring a second rendering model
 - Intentionally excludes private solo-only actions that were never meant to be shared
 
+### TasteProfile (derived, not persisted)
+
+`TasteProfile` is a runtime-only object built from `UserTitleInteraction` rows. It is not stored in the database — it is recomputed each time recommendations are requested.
+
+Fields:
+- `userIds` — the user(s) this profile covers
+- `preferredGenres` — scored genre preferences from interactions, weighted by type, source, and recency
+- `preferredProviders` — from user settings
+- `preferredMediaType` — derived from interaction votes
+- `runtimePreference` — derived from average runtime of positively-weighted titles
+- `dislikedTmdbKeys` — union of DISLIKE interactions (binary, no decay)
+- `hiddenTmdbKeys` — union of HIDE interactions (binary, no decay)
+- `watchedTmdbKeys` — union of all WATCHED interactions (binary, no decay)
+- `importedWatchedTmdbKeys` — subset of watchedTmdbKeys where `sourceContext` is `IMPORTED` or `NETFLIX_IMPORTED`
+- `recentlyWatchedTmdbKeys` — subset of watchedTmdbKeys where `updatedAt` is within the last 30 days (any source)
+
+Interaction weights applied during profile build:
+
+| Type      | Manual weight | Imported weight |
+|-----------|--------------|-----------------|
+| LIKE      | 3            | 2.0             |
+| WATCHED   | 1.5          | 0.8             |
+| WATCHLIST | 1            | 0.7             |
+| DISLIKE   | -4           | -3.0            |
+| HIDE      | -5           | -5              |
+
+Weights are further multiplied by a recency decay factor:
+
+| Age         | Multiplier |
+|-------------|-----------|
+| ≤ 14 days   | 1.3×      |
+| ≤ 90 days   | 1.0×      |
+| ≤ 365 days  | 0.75×     |
+| > 365 days  | 0.5×      |
+
+Decay applies only to genre/mediaType/runtime accumulation, not to key set membership.
+
 ### Derived Title Fit Summary
 
 - No dedicated table in MVP

@@ -228,13 +228,18 @@ These demo personas exist to make local development and recommendation tuning ea
 
 - Solo recommendation feed for a user
 - Combined recommendation feed for a selected group
-- Deterministic and explainable MVP scoring
+- Deterministic and explainable scoring using imported and manual real-world viewing history
 - Each recommendation surfaces 1 to 3 concise explanation reasons
 - Recommendation cards show a primary reason inline plus a lightweight “Why this?” affordance
 - Recommendation and Library cards can show a small fit label such as `Best for Katie`, `Strong shared fit`, or `Shared planning pick`
 - Recommendation and Library cards can also surface lightweight provider handoff actions such as `Open in ...` or `Search in ...` when a real handoff exists
-- Solo explanations speak to personal taste, providers, runtime, and prior watch history
+- Solo explanations speak to personal taste, providers, runtime, recency signals, and prior watch history
 - Group explanations focus on safe overlap, shared-provider access, and whether the exact group has already watched a title together
+- Imported Trakt and Netflix history shapes recommendations with reduced weight compared to manual ScreenLantern actions, preserving manual authority
+- Recently watched titles (last 30 days) are strongly suppressed so “tonight” recommendations stay fresh
+- Imported watch history from Trakt/Netflix is suppressed more than old manual watches, keeping well-watched catalogs from dominating
+- Watchlist items are included in the main candidate pool so strong watchlist picks can surface in main recommendations, not only in resurfacing lanes
+- Explanation language distinguishes between recently watched, imported history, and manually marked watched
 - Title-detail fit summaries reuse those same signals to answer:
   - who this is best for
   - whether the active group looks like strong overlap, a safe compromise, or mixed fit
