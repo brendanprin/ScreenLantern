@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 
 interface ProviderPreferencesFormProps {
   providerOptions: string[];
@@ -19,6 +20,7 @@ export function ProviderPreferencesForm({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [values, setValues] = useState<string[]>(selectedProviders);
+  const [query, setQuery] = useState("");
 
   function toggle(provider: string) {
     setValues((current) =>
@@ -42,6 +44,27 @@ export function ProviderPreferencesForm({
     });
   }
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const selected = values.filter((v) => providerOptions.includes(v));
+  const filtered = normalizedQuery
+    ? providerOptions.filter((p) => p.toLowerCase().includes(normalizedQuery))
+    : providerOptions.filter((p) => !values.includes(p));
+
+  function ProviderRow({ provider }: { provider: string }) {
+    return (
+      <label
+        key={provider}
+        className="flex items-center gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3 cursor-pointer"
+      >
+        <Checkbox
+          checked={values.includes(provider)}
+          onCheckedChange={() => toggle(provider)}
+        />
+        <span className="text-sm">{provider}</span>
+      </label>
+    );
+  }
+
   return (
     <Card className="bg-white/80">
       <CardHeader>
@@ -51,20 +74,39 @@ export function ProviderPreferencesForm({
         <p className="text-sm text-muted-foreground">
           These providers lightly boost search and recommendation ranking when availability data is present.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {providerOptions.map((provider) => (
-            <label
-              key={provider}
-              className="flex items-center gap-3 rounded-2xl border border-border bg-background/70 px-4 py-3"
-            >
-              <Checkbox
-                checked={values.includes(provider)}
-                onCheckedChange={() => toggle(provider)}
-              />
-              <span>{provider}</span>
-            </label>
-          ))}
-        </div>
+
+        {selected.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Selected ({selected.length})
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {selected.map((provider) => (
+                <ProviderRow key={provider} provider={provider} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Input
+          placeholder="Search providers..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="bg-background/70"
+        />
+
+        {filtered.length > 0 ? (
+          <div className="grid gap-2 sm:grid-cols-2 max-h-96 overflow-y-auto pr-1">
+            {filtered.map((provider) => (
+              <ProviderRow key={provider} provider={provider} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No providers match &ldquo;{query}&rdquo;
+          </p>
+        )}
+
         <Button disabled={isPending} onClick={save}>
           {isPending ? "Saving..." : "Save preferences"}
         </Button>
