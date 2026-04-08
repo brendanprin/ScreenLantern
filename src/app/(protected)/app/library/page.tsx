@@ -234,8 +234,20 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
           data-testid={`library-section-${section.id}`}
         >
           <CardHeader>
-            <CardTitle>{section.title}</CardTitle>
-            <p className="text-sm text-muted-foreground">{section.description}</p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <CardTitle>{section.title}</CardTitle>
+                <p className="text-sm text-muted-foreground">{section.description}</p>
+              </div>
+              {section.id === "watched" && (
+                <Link
+                  href="/app/library/history"
+                  className="shrink-0 text-sm text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  Rate your history →
+                </Link>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-5">
             {section.items.length === 0 ? (

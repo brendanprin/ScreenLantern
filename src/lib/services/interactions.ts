@@ -254,3 +254,82 @@ export function hasInteraction(
     type,
   );
 }
+
+export type WatchedHistoryItem = {
+  titleCacheId: string;
+  title: TitleSummary;
+  watchedAt: string;
+  origin: "netflix" | "trakt" | "manual";
+  rating: "LIKE" | "DISLIKE" | null;
+};
+
+const HISTORY_IMPORTED_CONTEXTS = [
+  SourceContext.IMPORTED,
+  SourceContext.NETFLIX_IMPORTED,
+] as const;
+
+export async function getWatchedHistoryForReview(
+  userId: string,
+  sourceFilter: "all" | "imported" | "manual" = "all",
+): Promise<WatchedHistoryItem[]> {
+  const whereSource =
+    sourceFilter === "imported"
+      ? { sourceContext: { in: [...HISTORY_IMPORTED_CONTEXTS] } }
+      : sourceFilter === "manual"
+        ? { sourceContext: { notIn: [...HISTORY_IMPORTED_CONTEXTS] } }
+        : {};
+
+  const watched = await prisma.userTitleInteraction.findMany({
+    where: {
+      userId,
+      interactionType: InteractionType.WATCHED,
+      ...whereSource,
+    },
+    include: { title: true },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (watched.length === 0) {
+    return [];
+  }
+
+  const titleCacheIds = watched.map((w) => w.titleCacheId);
+
+  const ratingRows = await prisma.userTitleInteraction.findMany({
+    where: {
+      userId,
+      titleCacheId: { in: titleCacheIds },
+      interactionType: { in: [InteractionType.LIKE, InteractionType.DISLIKE] },
+    },
+    select: { titleCacheId: true, interactionType: true },
+  });
+
+  const ratingMap = new Map<string, "LIKE" | "DISLIKE">();
+  for (const row of ratingRows) {
+    ratingMap.set(
+      row.titleCacheId,
+      row.interactionType === InteractionType.LIKE ? "LIKE" : "DISLIKE",
+    );
+  }
+
+  const items: WatchedHistoryItem[] = watched.map((w) => ({
+    titleCacheId: w.titleCacheId,
+    title: mapTitleCacheToSummary(w.title),
+    watchedAt: w.updatedAt.toISOString(),
+    origin: getPersonalInteractionOrigin(w.sourceContext),
+    rating: ratingMap.get(w.titleCacheId) ?? null,
+  }));
+
+  // Sort: unrated imported → unrated manual → rated (most recently watched first within each group)
+  const rank = (item: WatchedHistoryItem) => {
+    if (item.rating !== null) return 2;
+    if (item.origin !== "manual") return 0; // imported (netflix or trakt)
+    return 1;
+  };
+
+  return items.sort((a, b) => {
+    const rankDiff = rank(a) - rank(b);
+    if (rankDiff !== 0) return rankDiff;
+    return b.watchedAt.localeCompare(a.watchedAt);
+  });
+}
