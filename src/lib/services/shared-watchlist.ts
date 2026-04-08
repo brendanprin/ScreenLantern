@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { recordSharedWatchlistActivity } from "@/lib/services/activity";
 import { buildParticipantKey } from "@/lib/services/group-watch-sessions";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
-import { mapTitleCacheToSummary, upsertTitleCache } from "@/lib/services/title-cache";
+import { mapTitleCacheToSummary, upsertTitleSummary } from "@/lib/services/title-cache";
 import type {
   SharedWatchlistScopeKey,
   SharedWatchlistTitleState,
@@ -110,7 +110,7 @@ export async function setSharedWatchlistSave(args: {
   viewerUserId: string;
   actingUserId?: string;
   householdId: string;
-  title: TitleSummary | TitleDetails;
+  title: TitleSummary;
   scope: SharedWatchlistScopeKey;
   active: boolean;
 }) {
@@ -120,7 +120,7 @@ export async function setSharedWatchlistSave(args: {
     actorUserId: args.actingUserId ?? args.viewerUserId,
     scope: args.scope,
   });
-  const cachedTitle = await upsertTitleCache(args.title);
+  const cachedTitle = await upsertTitleSummary(args.title);
 
   await prisma.$transaction(async (tx) => {
     const existingEntry = await tx.sharedWatchlistEntry.findUnique({
@@ -465,7 +465,7 @@ export async function getSharedWatchlistCollectionItems(args: {
   entries.forEach((entry) => {
     const key = `${entry.title.tmdbId}:${entry.title.mediaType}`;
     const existing = grouped.get(key);
-    const title = mapTitleCacheToSummary(entry.title as never);
+    const title = mapTitleCacheToSummary(entry.title);
 
     if (existing) {
       existing.savedByNames.add(entry.savedBy.name);

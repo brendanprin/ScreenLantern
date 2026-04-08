@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getApiCurrentUserContext } from "@/lib/auth";
-import { transferHouseholdOwnership } from "@/lib/services/household";
+import { transferHouseholdOwnership, HouseholdError } from "@/lib/services/household";
 
 export async function POST(request: Request) {
   const user = await getApiCurrentUserContext();
@@ -21,17 +21,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ owner: newOwner });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to transfer ownership.";
-    const isForbidden =
-      message.includes("Only household owners") ||
-      message.includes("do not have access");
+    if (error instanceof HouseholdError) {
+      const status = error.code === "FORBIDDEN" ? 403 : error.code === "NOT_FOUND" ? 404 : 400;
+      return NextResponse.json({ error: error.message }, { status });
+    }
 
-    return NextResponse.json(
-      { error: message },
-      {
-        status: isForbidden ? 403 : 400,
-      },
-    );
+    return NextResponse.json({ error: "Unable to transfer ownership." }, { status: 400 });
   }
 }

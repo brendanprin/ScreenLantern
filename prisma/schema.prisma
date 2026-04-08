@@ -211,6 +211,7 @@ model TitleCache {
   unresolvedImports  UnresolvedImport[]
 
   @@unique([tmdbId, mediaType])
+  @@index([lastSyncedAt])
 }
 
 model UserTitleInteraction {
@@ -227,6 +228,7 @@ model UserTitleInteraction {
 
   @@unique([userId, titleCacheId, interactionType])
   @@index([userId, interactionType])
+  @@index([userId, updatedAt])
 }
 
 model RecommendationRun {

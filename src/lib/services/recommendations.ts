@@ -1,5 +1,7 @@
 import { InteractionType, Prisma, RecommendationMode } from "@prisma/client";
 
+import { formatList } from "@/lib/utils";
+
 import { prisma } from "@/lib/prisma";
 import {
   getRecommendationCandidatePool,
@@ -58,17 +60,6 @@ function normalizeMediaPreference(movieScore: number, tvScore: number) {
   return movieScore > tvScore ? ("movie" as const) : ("tv" as const);
 }
 
-function formatList(items: string[]) {
-  if (items.length <= 1) {
-    return items[0] ?? "";
-  }
-
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-
-  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
-}
 
 function formatGenres(genres: string[]) {
   const friendlyNames: Record<string, string> = {
@@ -901,7 +892,7 @@ async function buildWatchlistResurfacingSnapshot(args: {
   >();
 
   watchlistInteractions.forEach((interaction) => {
-    const title = mapTitleCacheToSummary(interaction.title as never);
+    const title = mapTitleCacheToSummary(interaction.title);
     const key = toTmdbKey(title.tmdbId, title.mediaType);
     const existing = grouped.get(key);
 
@@ -958,7 +949,7 @@ async function buildWatchlistResurfacingSnapshot(args: {
     });
 
     sharedEntries.forEach((entry) => {
-      const title = mapTitleCacheToSummary(entry.title as never);
+      const title = mapTitleCacheToSummary(entry.title);
       const key = toTmdbKey(title.tmdbId, title.mediaType);
       const existing = grouped.get(key);
 

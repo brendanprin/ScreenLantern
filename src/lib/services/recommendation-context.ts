@@ -1,5 +1,7 @@
 import { RecommendationMode } from "@prisma/client";
 
+import { normalizeSelectedUserIds } from "@/lib/utils";
+
 import { prisma } from "@/lib/prisma";
 import type {
   HouseholdMemberOption,
@@ -21,11 +23,6 @@ export interface RecommendationContextBootstrap {
   context: PersistedRecommendationContext;
 }
 
-function normalizeSelectedUserIds(userIds: string[]) {
-  return [...new Set(userIds.filter(Boolean))].sort((left, right) =>
-    left.localeCompare(right),
-  );
-}
 
 function buildActiveNames(
   selectedUserIds: string[],

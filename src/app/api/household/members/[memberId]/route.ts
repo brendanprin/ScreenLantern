@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getApiCurrentUserContext } from "@/lib/auth";
-import { removeHouseholdMember } from "@/lib/services/household";
+import { removeHouseholdMember, HouseholdError } from "@/lib/services/household";
 
 interface RouteProps {
   params: Promise<{ memberId: string }>;
@@ -25,15 +25,11 @@ export async function DELETE(_: Request, { params }: RouteProps) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to remove member.";
-    const isForbidden =
-      message.includes("Only household owners") ||
-      message.includes("do not have access");
+    if (error instanceof HouseholdError) {
+      const status = error.code === "FORBIDDEN" ? 403 : error.code === "NOT_FOUND" ? 404 : 400;
+      return NextResponse.json({ error: error.message }, { status });
+    }
 
-    return NextResponse.json(
-      { error: message },
-      { status: isForbidden ? 403 : 400 },
-    );
+    return NextResponse.json({ error: "Unable to remove member." }, { status: 400 });
   }
 }

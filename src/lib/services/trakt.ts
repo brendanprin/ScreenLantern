@@ -21,7 +21,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret } from "@/lib/token-crypto";
 import { getTitleDetails } from "@/lib/services/catalog";
-import { upsertTitleCache } from "@/lib/services/title-cache";
+import { upsertTitleDetails, upsertTitleSummary } from "@/lib/services/title-cache";
 import type {
   MediaTypeKey,
   TraktConnectionSummary,
@@ -1006,7 +1006,7 @@ async function ensureTitleCacheForImport(item: MockTraktTitleItem) {
   const detail = await getTitleDetails(item.tmdbId, item.mediaType);
 
   if (detail.data) {
-    return upsertTitleCache(detail.data);
+    return upsertTitleDetails(detail.data);
   }
 
   const fallbackTitle = {
@@ -1026,7 +1026,7 @@ async function ensureTitleCacheForImport(item: MockTraktTitleItem) {
     providerStatus: "unknown" as const,
   };
 
-  return upsertTitleCache(fallbackTitle);
+  return upsertTitleSummary(fallbackTitle);
 }
 
 async function getInteractionsForTitle(

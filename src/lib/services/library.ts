@@ -1,5 +1,7 @@
 import { InteractionType } from "@prisma/client";
 
+import { formatList } from "@/lib/utils";
+
 import {
   getInteractionOriginForType,
   getLibrarySourceBadge,
@@ -118,17 +120,6 @@ function buildContextLabel(activeNames: string[], isGroupMode: boolean) {
   return activeNames[0] ?? "you";
 }
 
-function formatList(items: string[]) {
-  if (items.length <= 1) {
-    return items[0] ?? "";
-  }
-
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-
-  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
-}
 
 function buildCollectionExplanations(args: {
   kind: LibraryInteractionKind;
@@ -610,7 +601,7 @@ async function buildGroupedInteractionItems(args: {
   >();
 
   interactions.forEach((interaction) => {
-    const title = mapTitleCacheToSummary(interaction.title as never);
+    const title = mapTitleCacheToSummary(interaction.title );
     const key = toTmdbKey(title.tmdbId, title.mediaType);
     const existing = grouped.get(key);
 
@@ -687,7 +678,7 @@ async function buildGroupWatchedItems(args: {
   const sessions = await prisma.groupWatchSession.findMany({
     where: {
       householdId: args.householdId,
-      participantKey: [...new Set(args.userIds)].sort((left, right) => left.localeCompare(right)).join("|"),
+      participantUserIds: { hasEvery: [...new Set(args.userIds)] },
     },
     include: {
       title: true,
@@ -701,7 +692,7 @@ async function buildGroupWatchedItems(args: {
   const hydrated = await hydrateGroupedTitles(
     sessions.map((session) => ({
       titleCacheId: session.title.id,
-      title: mapTitleCacheToSummary(session.title as never),
+      title: mapTitleCacheToSummary(session.title ),
       updatedAt: session.watchedAt,
     })),
   );

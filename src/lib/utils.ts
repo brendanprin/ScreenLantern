@@ -66,3 +66,21 @@ export function scoreToPercent(score: number, floor = 0, ceiling = 100) {
   return Math.max(floor, Math.min(ceiling, Math.round(score)));
 }
 
+export function formatList(items: string[]) {
+  if (items.length <= 1) {
+    return items[0] ?? "";
+  }
+
+  if (items.length === 2) {
+    return `${items[0]} and ${items[1]}`;
+  }
+
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
+export function normalizeSelectedUserIds(userIds: string[]) {
+  return [...new Set(userIds.filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+

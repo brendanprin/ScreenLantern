@@ -27,24 +27,13 @@ import {
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import { getCurrentSharedWatchlistState } from "@/lib/services/shared-watchlist";
 import { getTitleFitSummary } from "@/lib/services/title-fit";
-import { upsertTitleCache } from "@/lib/services/title-cache";
-import { cn, formatReleaseYear, formatRuntime } from "@/lib/utils";
+import { upsertTitleDetails } from "@/lib/services/title-cache";
+import { cn, formatList, formatReleaseYear, formatRuntime } from "@/lib/utils";
 
 interface TitleDetailPageProps {
   params: Promise<{ mediaType: "movie" | "tv"; tmdbId: string }>;
 }
 
-function formatList(items: string[]) {
-  if (items.length <= 1) {
-    return items[0] ?? "";
-  }
-
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-
-  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
-}
 
 function fitToneBadgeClass(tone: "strong" | "good" | "neutral" | "conflict") {
   if (tone === "strong") {
@@ -116,7 +105,7 @@ export default async function TitleDetailPage({ params }: TitleDetailPageProps) 
             },
           },
         })
-      : upsertTitleCache(details),
+      : upsertTitleDetails(details),
   ]);
 
   const actingUserId = contextBootstrap.context.isGroupMode

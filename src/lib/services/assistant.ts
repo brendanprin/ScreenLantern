@@ -27,7 +27,7 @@ import {
   getRecommendedTitles,
 } from "@/lib/services/recommendations";
 import { resolveAssistantRuntimeConfig } from "@/lib/services/assistant-runtime";
-import { toTmdbKey, upsertTitleCache } from "@/lib/services/title-cache";
+import { toTmdbKey, upsertTitleDetails, upsertTitleSummary } from "@/lib/services/title-cache";
 import { getTitleFitSummary } from "@/lib/services/title-fit";
 import { getTraktConnectionSummary } from "@/lib/services/trakt";
 import type {
@@ -1426,7 +1426,7 @@ async function buildCardsFromLibraryItems(
 
   return Promise.all(
     selectedItems.map(async (item) => {
-      const cachedTitle = await upsertTitleCache(item.title);
+      const cachedTitle = await upsertTitleSummary(item.title);
       const fitSummary = await getTitleFitSummary({
         userId: runtime.viewer.userId,
         householdId: runtime.viewer.householdId,
@@ -1688,7 +1688,7 @@ async function getFitToolPayload(
     };
   }
 
-  const cachedTitle = await upsertTitleCache(detail.data);
+  const cachedTitle = await upsertTitleDetails(detail.data);
   const fitSummary = await getTitleFitSummary({
     userId: runtime.viewer.userId,
     householdId: runtime.viewer.householdId,

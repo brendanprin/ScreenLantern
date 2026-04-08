@@ -1,3 +1,4 @@
+import { formatList } from "@/lib/utils";
 import type {
   ProviderHandoffEntry,
   ProviderHandoffKind,
@@ -94,17 +95,6 @@ const PROVIDER_HANDOFF_STRATEGIES: ProviderHandoffStrategy[] = [
   },
 ];
 
-function formatList(items: string[]) {
-  if (items.length <= 1) {
-    return items[0] ?? "";
-  }
-
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-
-  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
-}
 
 function buildSearchQuery(title: TitleSummary) {
   const year = title.releaseYear ?? null;

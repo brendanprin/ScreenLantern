@@ -1,4 +1,4 @@
-import { MediaType, type Prisma } from "@prisma/client";
+import { MediaType, type Prisma, type TitleCache } from "@prisma/client";
 
 import type {
   MediaTypeKey,
@@ -35,52 +35,49 @@ function getProviderStatusFromMetadata(
   return providers.length > 0 ? "available" : "unknown";
 }
 
-export async function upsertTitleCache(title: TitleSummary | TitleDetails) {
-  const providerSnapshot = title.providers as unknown as Prisma.InputJsonValue;
-  const metadataJson = title as unknown as Prisma.InputJsonValue;
+function buildScalarFields(title: TitleSummary) {
+  return {
+    title: title.title,
+    overview: title.overview,
+    posterPath: title.posterPath,
+    backdropPath: title.backdropPath,
+    releaseDate: title.releaseDate ? new Date(title.releaseDate) : null,
+    runtimeMinutes: title.runtimeMinutes ?? null,
+    genres: title.genres,
+    voteAverage: title.voteAverage ?? null,
+    popularity: title.popularity ?? null,
+    providerSnapshot: title.providers as unknown as Prisma.InputJsonValue,
+  };
+}
+
+export async function upsertTitleSummary(title: TitleSummary) {
+  const scalars = buildScalarFields(title);
+  const where = {
+    tmdbId_mediaType: { tmdbId: title.tmdbId, mediaType: toMediaType(title.mediaType) },
+  };
 
   return prisma.titleCache.upsert({
-    where: {
-      tmdbId_mediaType: {
-        tmdbId: title.tmdbId,
-        mediaType: toMediaType(title.mediaType),
-      },
-    },
-    update: {
-      title: title.title,
-      overview: title.overview,
-      posterPath: title.posterPath,
-      backdropPath: title.backdropPath,
-      releaseDate: title.releaseDate ? new Date(title.releaseDate) : null,
-      runtimeMinutes: title.runtimeMinutes ?? null,
-      genres: title.genres,
-      voteAverage: title.voteAverage ?? null,
-      popularity: title.popularity ?? null,
-      providerSnapshot,
-      metadataJson,
-      lastSyncedAt: new Date(),
-    },
-    create: {
-      tmdbId: title.tmdbId,
-      mediaType: toMediaType(title.mediaType),
-      title: title.title,
-      overview: title.overview,
-      posterPath: title.posterPath,
-      backdropPath: title.backdropPath,
-      releaseDate: title.releaseDate ? new Date(title.releaseDate) : null,
-      runtimeMinutes: title.runtimeMinutes ?? null,
-      genres: title.genres,
-      voteAverage: title.voteAverage ?? null,
-      popularity: title.popularity ?? null,
-      providerSnapshot,
-      metadataJson,
-    },
+    where,
+    update: { ...scalars, lastSyncedAt: new Date() },
+    create: { tmdbId: title.tmdbId, mediaType: toMediaType(title.mediaType), ...scalars },
   });
 }
 
-export function mapTitleCacheToSummary(
-  cache: Awaited<ReturnType<typeof upsertTitleCache>>,
-): TitleSummary {
+export async function upsertTitleDetails(title: TitleDetails) {
+  const scalars = buildScalarFields(title);
+  const metadataJson = title as unknown as Prisma.InputJsonValue;
+  const where = {
+    tmdbId_mediaType: { tmdbId: title.tmdbId, mediaType: toMediaType(title.mediaType) },
+  };
+
+  return prisma.titleCache.upsert({
+    where,
+    update: { ...scalars, metadataJson, lastSyncedAt: new Date() },
+    create: { tmdbId: title.tmdbId, mediaType: toMediaType(title.mediaType), ...scalars, metadataJson },
+  });
+}
+
+export function mapTitleCacheToSummary(cache: TitleCache): TitleSummary {
   const providers = Array.isArray(cache.providerSnapshot)
     ? (cache.providerSnapshot as unknown as TitleSummary["providers"])
     : [];

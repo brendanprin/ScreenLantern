@@ -6,6 +6,7 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { normalizeSelectedUserIds } from "@/lib/utils";
 import {
   getRecommendationContextBootstrap,
   resolveRecommendationContextState,
@@ -39,11 +40,6 @@ export const DEFAULT_REMINDER_PREFERENCES: ReminderPreferences = {
   allowDismissedReappear: false,
 };
 
-function normalizeSelectedUserIds(userIds: string[]) {
-  return [...new Set(userIds.filter(Boolean))].sort((left, right) =>
-    left.localeCompare(right),
-  );
-}
 
 function toReminderAggressivenessKey(
   value: ReminderAggressiveness,
@@ -660,7 +656,7 @@ function mapReminderRecordToItem(
     };
   }>,
 ): ReminderItem {
-  const title = mapTitleCacheToSummary(reminder.title as never);
+  const title = mapTitleCacheToSummary(reminder.title);
 
   return {
     id: reminder.id,

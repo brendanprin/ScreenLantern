@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { InteractionType, SourceContext } from "@prisma/client";
 
 import { useActiveContext } from "@/components/active-context-provider";
+import { formatList } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type {
   GroupWatchState,
@@ -50,17 +51,6 @@ export function InteractionButtons({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function formatList(items: string[]) {
-    if (items.length <= 1) {
-      return items[0] ?? "";
-    }
-
-    if (items.length === 2) {
-      return `${items[0]} and ${items[1]}`;
-    }
-
-    return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
-  }
 
   async function handleAction(
     type: InteractionType,

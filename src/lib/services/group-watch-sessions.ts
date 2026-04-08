@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { recordGroupWatchActivity } from "@/lib/services/activity";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
-import { toTmdbKey, upsertTitleCache } from "@/lib/services/title-cache";
+import { toTmdbKey, upsertTitleSummary } from "@/lib/services/title-cache";
 import type { GroupWatchState, TitleDetails, TitleSummary } from "@/lib/types";
 
 export function buildParticipantKey(userIds: string[]) {
@@ -13,7 +13,7 @@ export function buildParticipantKey(userIds: string[]) {
 export async function createGroupWatchSession(args: {
   userId: string;
   householdId: string;
-  title: TitleSummary | TitleDetails;
+  title: TitleSummary;
 }) {
   const bootstrap = await getRecommendationContextBootstrap({
     userId: args.userId,
@@ -24,7 +24,7 @@ export async function createGroupWatchSession(args: {
     throw new Error("Switch to a group context before marking a title watched by the group.");
   }
 
-  const cachedTitle = await upsertTitleCache(args.title);
+  const cachedTitle = await upsertTitleSummary(args.title);
   const participantKey = buildParticipantKey(bootstrap.context.selectedUserIds);
   const actorName =
     bootstrap.householdMembers.find((member) => member.id === args.userId)?.name ??
@@ -91,17 +91,16 @@ export async function getCurrentContextGroupWatchState(args: {
     };
   }
 
-  const watchSession = await prisma.groupWatchSession.findUnique({
+  const watchSession = await prisma.groupWatchSession.findFirst({
     where: {
-      householdId_titleCacheId_participantKey: {
-        householdId: args.householdId,
-        titleCacheId: args.titleCacheId,
-        participantKey: buildParticipantKey(bootstrap.context.selectedUserIds),
-      },
+      householdId: args.householdId,
+      titleCacheId: args.titleCacheId,
+      participantUserIds: { hasEvery: bootstrap.context.selectedUserIds },
     },
     select: {
       watchedAt: true,
     },
+    orderBy: { watchedAt: "asc" },
   });
 
   return {
@@ -114,10 +113,14 @@ export async function getGroupWatchedTmdbKeys(args: {
   householdId: string;
   userIds: string[];
 }) {
+  if (args.userIds.length === 0) {
+    return new Set<string>();
+  }
+
   const watchSessions = await prisma.groupWatchSession.findMany({
     where: {
       householdId: args.householdId,
-      participantKey: buildParticipantKey(args.userIds),
+      participantUserIds: { hasEvery: args.userIds },
     },
     select: {
       title: {
@@ -151,7 +154,7 @@ export async function getGroupWatchStateMap(args: {
   const watchSessions = await prisma.groupWatchSession.findMany({
     where: {
       householdId: args.householdId,
-      participantKey: buildParticipantKey(args.userIds),
+      participantUserIds: { hasEvery: args.userIds },
       titleCacheId: {
         in: args.titleCacheIds,
       },

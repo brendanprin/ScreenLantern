@@ -6,6 +6,7 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { formatList } from "@/lib/utils";
 import type {
   HouseholdActivityItem,
   SharedWatchlistScopeKey,
@@ -15,17 +16,6 @@ import type {
 
 type ActivityDbClient = Prisma.TransactionClient;
 
-function formatList(items: string[]) {
-  if (items.length <= 1) {
-    return items[0] ?? "";
-  }
-
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-
-  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
-}
 
 function toMediaTypeKey(mediaType: MediaType) {
   return mediaType === "MOVIE" ? "movie" : "tv";
@@ -372,12 +362,20 @@ async function assertHouseholdAccess(userId: string, householdId: string) {
   }
 }
 
+const ACTIVITY_RETENTION_DAYS = 90;
+
 export async function getHouseholdActivityFeed(args: {
   userId: string;
   householdId: string;
   limit?: number;
 }): Promise<HouseholdActivityItem[]> {
   await assertHouseholdAccess(args.userId, args.householdId);
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - ACTIVITY_RETENTION_DAYS);
+  await prisma.householdActivity.deleteMany({
+    where: { householdId: args.householdId, createdAt: { lt: cutoff } },
+  });
 
   const activities = await prisma.householdActivity.findMany({
     where: {

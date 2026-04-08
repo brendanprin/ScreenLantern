@@ -2,6 +2,16 @@ import { randomBytes } from "node:crypto";
 
 import { HouseholdRole, Prisma } from "@prisma/client";
 
+export class HouseholdError extends Error {
+  constructor(
+    message: string,
+    public readonly code: "FORBIDDEN" | "NOT_FOUND" | "BAD_REQUEST",
+  ) {
+    super(message);
+    this.name = "HouseholdError";
+  }
+}
+
 import {
   canManageHousehold,
   canRemoveHouseholdMember,
@@ -71,11 +81,11 @@ async function ensureOwnerAccess(userId: string, householdId: string) {
   });
 
   if (!actor || actor.householdId !== householdId) {
-    throw new Error("You do not have access to this household.");
+    throw new HouseholdError("You do not have access to this household.", "FORBIDDEN");
   }
 
   if (!canManageHousehold(actor.householdRole)) {
-    throw new Error("Only household owners can manage household governance.");
+    throw new HouseholdError("Only household owners can manage household governance.", "FORBIDDEN");
   }
 
   return actor;
@@ -305,6 +315,23 @@ export async function createHouseholdInvite(args: {
 
   const actor = await ensureOwnerAccess(args.createdById, args.householdId);
 
+  const existingActiveInvite = await prisma.householdInvite.findFirst({
+    where: {
+      householdId: args.householdId,
+      revokedAt: null,
+      redeemedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    select: { id: true },
+  });
+
+  if (existingActiveInvite) {
+    throw new HouseholdError(
+      "An active invite already exists for this household. Revoke it before creating a new one.",
+      "BAD_REQUEST",
+    );
+  }
+
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + parsed.data.expiresInDays);
 
@@ -417,7 +444,7 @@ export async function removeHouseholdMember(args: {
   });
 
   if (!actor || actor.householdId !== args.householdId) {
-    throw new Error("You do not have access to this household.");
+    throw new HouseholdError("You do not have access to this household.", "FORBIDDEN");
   }
 
   const target = await prisma.user.findUnique({
@@ -431,7 +458,7 @@ export async function removeHouseholdMember(args: {
   });
 
   if (!target || target.householdId !== args.householdId) {
-    throw new Error("Member not found.");
+    throw new HouseholdError("Member not found.", "NOT_FOUND");
   }
 
   if (
@@ -441,8 +468,9 @@ export async function removeHouseholdMember(args: {
       isSelf: actor.id === target.id,
     })
   ) {
-    throw new Error(
+    throw new HouseholdError(
       "Only household owners can remove members, and owners cannot remove themselves or other owners in MVP.",
+      "FORBIDDEN",
     );
   }
 

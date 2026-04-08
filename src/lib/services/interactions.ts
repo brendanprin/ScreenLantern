@@ -9,7 +9,7 @@ import type {
   TitleDetails,
   TitleSummary,
 } from "@/lib/types";
-import { mapTitleCacheToSummary, toTmdbKey, upsertTitleCache } from "@/lib/services/title-cache";
+import { mapTitleCacheToSummary, toTmdbKey, upsertTitleSummary } from "@/lib/services/title-cache";
 import { getPersonalInteractionOrigin } from "@/lib/personal-interaction-sources";
 import { prisma } from "@/lib/prisma";
 
@@ -27,13 +27,13 @@ const IMPORTED_SOURCE_CONTEXTS = [
 
 export async function setInteraction(args: {
   userId: string;
-  title: TitleSummary | TitleDetails;
+  title: TitleSummary;
   interactionType: InteractionType;
   active: boolean;
   sourceContext?: SourceContext;
   groupRunId?: string;
 }) {
-  const cachedTitle = await upsertTitleCache(args.title);
+  const cachedTitle = await upsertTitleSummary(args.title);
 
   if (!args.active) {
     await prisma.userTitleInteraction.deleteMany({
@@ -174,10 +174,10 @@ export function getImportedInteractionTypesForKind(
 
 export async function clearImportedInteractionState(args: {
   userId: string;
-  title: TitleSummary | TitleDetails;
+  title: TitleSummary;
   kind: ClearImportedInteractionKind;
 }) {
-  const cachedTitle = await upsertTitleCache(args.title);
+  const cachedTitle = await upsertTitleSummary(args.title);
   const interactionTypes = getImportedInteractionTypesForKind(args.kind);
   const cleared = await prisma.userTitleInteraction.deleteMany({
     where: {
@@ -217,7 +217,7 @@ export async function getLibraryItems(
 
   return interactions.map((interaction) => ({
     interactionId: interaction.id,
-    title: mapTitleCacheToSummary(interaction.title as never),
+    title: mapTitleCacheToSummary(interaction.title),
     updatedAt: interaction.updatedAt.toISOString(),
   }));
 }

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getCurrentUserContext } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTitleDetails } from "@/lib/services/catalog";
-import { upsertTitleCache } from "@/lib/services/title-cache";
+import { upsertTitleDetails } from "@/lib/services/title-cache";
 
 const resolveSchema = z.object({
   action: z.literal("resolve"),
@@ -68,7 +68,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     );
   }
 
-  const cachedTitle = await upsertTitleCache(titleResult.data);
+  const cachedTitle = await upsertTitleDetails(titleResult.data);
 
   await prisma.$transaction([
     prisma.userTitleInteraction.upsert({

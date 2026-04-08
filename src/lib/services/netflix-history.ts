@@ -11,7 +11,7 @@ import {
   parseNetflixViewingHistoryCsv,
   summarizeNetflixHistoryImport,
 } from "@/lib/services/netflix-history-shared";
-import { toTmdbKey, upsertTitleCache } from "@/lib/services/title-cache";
+import { toTmdbKey, upsertTitleSummary } from "@/lib/services/title-cache";
 import type { MediaTypeKey, TitleSummary } from "@/lib/types";
 
 interface NetflixTitleCandidate {
@@ -240,7 +240,7 @@ export async function importNetflixViewingHistory(args: {
       continue;
     }
 
-    const cachedTitle = await upsertTitleCache(matchedTitle);
+    const cachedTitle = await upsertTitleSummary(matchedTitle);
     const existing = await prisma.userTitleInteraction.findUnique({
       where: {
         userId_titleCacheId_interactionType: {

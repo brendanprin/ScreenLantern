@@ -1,7 +1,8 @@
 import { InteractionType } from "@prisma/client";
 
+import { formatList } from "@/lib/utils";
+
 import { prisma } from "@/lib/prisma";
-import { buildParticipantKey } from "@/lib/services/group-watch-sessions";
 import { getRecommendationContextBootstrap } from "@/lib/services/recommendation-context";
 import {
   getUserTasteProfile,
@@ -26,17 +27,6 @@ const POSITIVE_EXPLANATION_CATEGORIES = new Set([
   "media_fit",
 ]);
 
-function formatList(items: string[]) {
-  if (items.length <= 1) {
-    return items[0] ?? "";
-  }
-
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-
-  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
-}
 
 function uniqueNames(items: string[]) {
   return [...new Set(items.filter(Boolean))].sort((left, right) =>
@@ -492,7 +482,6 @@ export async function getTitleFitSummary(args: {
         titleCacheId: args.titleCacheId,
       },
       select: {
-        participantKey: true,
         participantUserIds: true,
       },
     }),
@@ -511,12 +500,14 @@ export async function getTitleFitSummary(args: {
     session.participantUserIds.forEach((userId) => watchedByMemberIds.add(userId));
   });
 
-  const currentGroupParticipantKey = bootstrap.context.isGroupMode
-    ? buildParticipantKey(bootstrap.context.selectedUserIds)
+  const currentUserIds = bootstrap.context.isGroupMode
+    ? bootstrap.context.selectedUserIds
     : null;
   const isWatchedByCurrentGroup = Boolean(
-    currentGroupParticipantKey &&
-      watchSessions.some((session) => session.participantKey === currentGroupParticipantKey),
+    currentUserIds &&
+      watchSessions.some((session) =>
+        currentUserIds.every((id) => session.participantUserIds.includes(id)),
+      ),
   );
 
   const groupSavedByIds = new Set(
